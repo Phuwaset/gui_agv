@@ -1,0 +1,80 @@
+sequenceDiagram
+    autonumber
+
+    box Presentation Layer (Frontend React UI)
+        actor User as Operator / Admin
+        participant UI as WebApp UI
+        participant Card as Status Cards (Telemetry)
+        participant Map as 2D Map View (Phase 2)
+    end
+
+    box Gateway Layer (Bun + ElysiaJS)
+        participant GW as Bun Gateway (Connection Manager)
+    end
+
+    box System & Sync Layer
+        participant Chrony as Chrony Service (Time Sync)
+    end
+
+    box Robot ROS Layer (rosbridge :9090)
+        participant WS as rosbridge_server
+        participant Station as station_service.py
+        participant Nav as move_base / Localization
+    end
+
+    %% ==========================================================
+    %% Phase 1: Connection Handshake, Time Sync & Live Telemetry
+    %% ==========================================================
+    rect rgb(240, 248, 255)
+    note over User, Nav: Phase 1: Connection & Live Telemetry (เน้นทำอันนี้ให้ผ่านก่อน)
+    User->>UI: 1. เปิดหน้าจอเว็บ WebApp UI
+    UI->>GW: 2. ต่อ WebSocket (ws://localhost:9000/ws)
+    GW->>WS: 3. ต่อ WebSocket ไปยังหุ่นยนต์ (ws://<robot-ip>:9090)
+    WS-->>GW: 4. rosbridge ตอบรับ Handshake สำเร็จ
+
+    GW->>Chrony: 5. ตรวจสอบ Clock Offset ระหว่างคอมกับหุ่น
+    Chrony-->>GW: 6. Time Sync Status (Offset OK < 5ms)
+    GW-->>Card: 7. อัปเดตสถานะ "Robot: ONLINE" + "Clock: Synced"
+
+    GW->>WS: 8. Subscribe: /amv_navigation_status & /amv_base_status
+    loop ทุก 100ms (10Hz Telemetry Stream)
+        Station-->>WS: ส่งข้อมูลสถานะหุ่นล่าสุด
+        WS-->>GW: JSON: current_station, nav_status, pin_lock, obstacle, buttons
+        GW-->>Card: อัปเดตตัวเลขสดบนหน้าจอ (สถานีปัจจุบัน, สลัก Pin, เซ็นเซอร์สิ่งกีดขวาง)
+    end
+    end
+
+    %% ==========================================================
+    %% Phase 2: Station List & Navigation Commands
+    %% ==========================================================
+    rect rgb(245, 255, 245)
+    note over User, Nav: Phase 2: Stations & Control (สั่งการทำงาน)
+    UI->>GW: 9. ขอรายชื่อสถานี (GET /api/stations)
+    GW->>WS: 10. Call ROS Service: /read_station
+    WS->>Station: เรียก read_station_service()
+    Station-->>WS: ส่งรายชื่อสถานีจาก CSV (Line1, Line12, Material Room...)
+    WS-->>GW: Station List JSON
+    GW-->>UI: แสดงรายชื่อสถานีลงใน Dropdown ให้ผู้ใช้เลือก
+
+    User->>UI: 11. เลือกสถานี "Line12" แล้วกดปุ่ม "Go Station"
+    UI->>GW: 12. สั่งเดินรถ (POST /api/go-station { target: "Line12" })
+    GW->>WS: 13. Call ROS Service: /go_station { target_station: "Line12" }
+    WS->>Station: เรียก go_station_service()
+    Station->>Nav: ส่ง Goal ไปที่ move_base Action Server
+    Nav-->>Station: เริ่มเคลื่อนที่ (movebase_status = 1: Got path planning)
+    Station-->>Card: สตรีมสถานะ "Going to Line12" และไฟ LED สีเขียวกระพริบ
+    end
+
+    %% ==========================================================
+    %% Phase 3: 2D Map Visualization
+    %% ==========================================================
+    rect rgb(255, 250, 240)
+    note over User, Nav: Phase 3: 2D Map & Robot Position (แผนที่ภาพ)
+    UI->>GW: 14. โหลดแผนที่ (GET /api/map) -> ดึงรูป PNG/PGM แผนที่โกดัง
+    GW-->>Map: แสดงภาพแผนที่บนหน้าจอ Canvas
+    loop ตำแหน่งหุ่นบนแผนที่
+        Nav-->>WS: Pub /amv_pose_tf (x, y, yaw)
+        WS-->>GW: Forward พิกัด
+        GW-->>Map: ขยับไอคอนตัวหุ่นยนต์บนแผนที่ตามพิกัดจริง
+    end
+    end
