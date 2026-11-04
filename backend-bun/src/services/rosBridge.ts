@@ -66,7 +66,7 @@ export class RosBridgeService {
         this.reconnectTimer = setTimeout(() => this.connect(), 3000);
       };
     } catch (err) {
-      console.error("[ROS Bridge] Error connecting:", err);
+      console.error("[ROS Bridge] Error connecting:", err); 
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = setTimeout(() => this.connect(), 3000);
     }
