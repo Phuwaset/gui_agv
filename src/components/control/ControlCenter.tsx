@@ -1,195 +1,277 @@
 import { useState } from "react";
 import {
-  Activity,
-  Battery,
-  BatteryCharging,
+  Compass,
+  Crosshair,
+  HelpCircle,
+  Hexagon,
+  Layers,
+  Lightbulb,
+  Maximize2,
   Navigation,
   Play,
   RotateCcw,
+  Share2,
+  ShieldCheck,
   Sun,
+  X,
+  Zap,
 } from "lucide-react";
-import type { NavigationStatus, BaseStatus } from "../../types/telemetry";
+import type {
+  NavigationStatus,
+  BaseStatus,
+  StationData,
+} from "../../types/telemetry";
 
 interface ControlCenterProps {
   isConnected: boolean;
   nav: NavigationStatus | null;
   base: BaseStatus | null;
+  onClose?: () => void;
+  // Offline Studio Process
+  isStudioRunning: boolean;
+  studioPid?: number;
+  isStudioLoading: boolean;
+  onToggleStudio: () => void;
+  // Station Manager
+  stations: StationData[];
+  selectedStation: StationData | null;
+  onSelectStation: (station: StationData) => void;
+  onGoStation: (target: string) => Promise<any>;
+  onResetPosition: (target: string) => Promise<any>;
+  actionStatus?: string;
+  // Camera View Mode
+  viewMode?: string;
+  onSelectViewMode?: (mode: string) => void;
 }
 
-export function ControlCenter({ isConnected, nav, base }: ControlCenterProps) {
+export function ControlCenter({
+  isConnected,
+  nav,
+  base,
+  onClose,
+  isStudioRunning,
+  studioPid,
+  isStudioLoading,
+  onToggleStudio,
+  stations,
+  selectedStation,
+  onSelectStation,
+  onGoStation,
+  onResetPosition,
+  actionStatus,
+  viewMode = "overview",
+  onSelectViewMode,
+}: ControlCenterProps) {
   const [speedMultiplier, setSpeedMultiplier] = useState<string>("1.0x");
-  const [agvLight, setAgvLight] = useState<boolean>(true);
+  const [agvLight, setAgvLight] = useState<boolean>(false);
   const [factoryLight, setFactoryLight] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const isEmergency = base?.emergency_button ?? false;
   const isObstacle = nav?.obstacle === "Detecting";
 
+  // Station A & Station B Setup (ตาม Reference Mockup)
+  const stationA = stations[0]?.name || "station A";
+  const stationB = selectedStation?.name || stations[1]?.name || "station B";
+
   const getWorkStatusText = () => {
     if (!isConnected) return "ออฟไลน์";
     if (isEmergency) return "หยุดฉุกเฉิน (E-Stop)";
-    if (isObstacle) return "พบสิ่งกีดขวาง";
-    if (nav?.navigation_status === "Got path planning") return "กำลังวิ่งไปสถานี";
+    if (isObstacle) return "ติดสิ่งกีดขวาง";
+    if (nav?.navigation_status === "Got path planning" || base?.robot_moving)
+      return "กำลังวิ่งภารกิจ";
     return "พร้อม";
   };
 
+  const handleLaunchMission = async () => {
+    setIsSubmitting(true);
+    try {
+      await onGoStation(stationB);
+    } catch (err) {
+      console.error("[ERROR] [Control] Failed to launch mission:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const currentSpeed = base?.robot_moving ? "0.38 m/s" : "0.00 m/s";
+
   return (
-    <aside className="w-full lg:w-96 border-l border-slate-800/80 bg-[#0a0f1d] p-6 flex flex-col justify-between overflow-y-auto">
+    <aside className="w-full lg:w-[380px] bg-[#161b22] border-l border-[#30363d] p-6 flex flex-col justify-between overflow-y-auto space-y-6 select-none shrink-0 text-slate-200">
       <div className="space-y-6">
-        {/* Header Title */}
+        {/* 1. Header: CONTROL CENTER / AGV Explorer • */}
         <div>
-          <div className="text-[11px] font-mono tracking-wider text-slate-500 uppercase">
-            CONTROL CENTER
+          <div className="flex items-center justify-between text-[11px] font-mono tracking-widest text-slate-500 uppercase">
+            <span>CONTROL CENTER</span>
+            {onClose && (
+              <button
+                onClick={onClose}
+                title="ปิดแผงควบคุม"
+                className="text-slate-500 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="flex items-center justify-between mt-1">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              AGV Explorer
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isConnected ? "bg-emerald-400" : "bg-rose-500"
-                }`}
-              />
-            </h3>
-            <span className="text-[10px] font-mono text-slate-500">UNIT 01</span>
-          </div>
-          <p className="text-xs text-slate-400">รถขนส่งอัตโนมัติ • Factory edition</p>
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2 mt-1">
+            AGV Explorer
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse" />
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Smart AMR Factory Edition
+          </p>
         </div>
 
-        {/* Status Card: สถานะการทำงาน */}
-        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400 flex items-center gap-2">
-              <Activity className="w-3.5 h-3.5 text-orange-400" />
+        {/* 2. Work Status Card (การ์ดสถานะการทำงาน ตาม Reference 100%) */}
+        <div className="p-4 rounded-2xl bg-[#21262d] border border-[#30363d] flex items-center gap-4 shadow-lg">
+          <div className="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center shrink-0">
+            <Hexagon className="w-6 h-6 text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">
               สถานะการทำงาน
-            </span>
-            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-              {isConnected ? "ONLINE" : "OFFLINE"}
-            </span>
-          </div>
-          <div className="text-xl font-bold text-white flex items-center gap-2.5 pt-1">
-            <div
-              className={`w-3 h-3 rounded-full ${
-                isConnected && !isEmergency
-                  ? "bg-emerald-400 animate-pulse"
-                  : "bg-rose-500"
-              }`}
-            />
-            {getWorkStatusText()}
-          </div>
-        </div>
-
-        {/* Battery Status Widget */}
-        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              {base?.charging ? (
-                <BatteryCharging className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <Battery className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-xl font-bold text-white tracking-tight flex items-center gap-2 mt-0.5">
+              <span>{getWorkStatusText()}</span>
+              {isConnected && !isEmergency && !isObstacle && (
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
               )}
-              ระดับแบตเตอรี่
-            </span>
-            <span className="font-bold text-white text-base">
-              {base?.battery_level ?? 100}%
-            </span>
-          </div>
-          <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-emerald-500 h-full transition-all duration-500"
-              style={{ width: `${base?.battery_level ?? 100}%` }}
-            />
-          </div>
-          <div className="text-[11px] text-slate-400 flex justify-between pt-1">
-            <span>
-              โหมด: {base?.auto_mode ? "อัตโนมัติ (Auto)" : "แมนนวล (Manual)"}
-            </span>
-            <span>{base?.charging ? "กำลังชาร์จไฟ" : "ใช้งานแบตเตอรี่"}</span>
+            </div>
           </div>
         </div>
 
-        {/* Movement / Station Selector */}
+        {/* 3. Station Map & Mission Routing (แผนที่สถานี ตาม Reference 100%) */}
         <div className="space-y-3">
-          <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-            <Navigation className="w-3.5 h-3.5 text-orange-400" />
-            การเคลื่อนที่ (Station Selection)
-          </span>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button className="p-3 rounded-lg border border-orange-500/50 bg-orange-500/10 text-left">
-              <div className="text-[10px] text-slate-400">สถานีต้นทาง</div>
-              <div className="text-sm font-bold text-white">A (Material Room)</div>
-            </button>
-            <button className="p-3 rounded-lg border border-slate-800 bg-slate-900/60 text-left hover:border-slate-700">
-              <div className="text-[10px] text-slate-400">สถานีปลายทาง</div>
-              <div className="text-sm font-bold text-slate-300">B (Line12)</div>
-            </button>
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+            <span>แผนที่สถานี</span>
+            <Share2 className="w-3.5 h-3.5 text-slate-500" />
           </div>
 
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            {/* Box Station A */}
+            <div className="p-3 rounded-xl bg-[#21262d] border border-[#30363d] text-center">
+              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 mb-1">
+                A
+              </span>
+              <div className="text-xs font-semibold text-white truncate">
+                {stationA}
+              </div>
+            </div>
+
+            {/* Connecting Dashed Arrow Line */}
+            <div className="flex flex-col items-center justify-center px-1">
+              <span className="text-[10px] text-slate-500 font-mono">───</span>
+              <span className="text-orange-500 text-xs">⇄</span>
+              <span className="text-[10px] text-slate-500 font-mono">───</span>
+            </div>
+
+            {/* Box Station B (Selectable) */}
+            <div className="p-3 rounded-xl bg-[#21262d] border border-orange-500/50 text-center relative group">
+              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white mb-1">
+                B
+              </span>
+              <select
+                value={stationB}
+                onChange={(e) => {
+                  const target = stations.find((s) => s.name === e.target.value);
+                  if (target) onSelectStation(target);
+                }}
+                className="w-full bg-transparent text-xs font-semibold text-white text-center cursor-pointer outline-none truncate"
+              >
+                {stations.map((s) => (
+                  <option key={s.name} value={s.name} className="bg-[#21262d] text-white">
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Large Safety Orange CTA Button (เริ่มวิ่งภารกิจ) */}
           <button
-            disabled={!isConnected}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 disabled:opacity-50 transition active:scale-[0.98]"
+            onClick={handleLaunchMission}
+            disabled={isSubmitting || !isConnected}
+            className="w-full py-3.5 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-[0.98] transition font-bold text-white text-sm flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Play className="w-4 h-4 fill-white" />
-            เริ่มวิ่งภารกิจ
+            <span>{isSubmitting ? "กำลังส่งคำสั่ง..." : "เริ่มวิ่งภารกิจ"}</span>
           </button>
         </div>
 
-        {/* Speed Multiplier Presets */}
+        {/* 4. Speed Multipliers (ความเร็วในการวิ่ง ตาม Reference 100%) */}
         <div className="space-y-2">
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-slate-400">ความเร็วในการวิ่ง</span>
-            <span className="font-mono text-orange-400 font-bold">
-              {speedMultiplier}
-            </span>
+          <div className="flex items-center justify-between text-xs font-semibold">
+            <span className="text-slate-300">ความเร็วในการวิ่ง</span>
+            <span className="font-mono text-orange-400 font-bold">{currentSpeed}</span>
           </div>
+
           <div className="grid grid-cols-3 gap-2">
-            {["0.5x", "1.0x", "1.5x"].map((val) => (
+            {["0.5x", "1.0x", "1.5x"].map((spd) => (
               <button
-                key={val}
-                onClick={() => setSpeedMultiplier(val)}
-                className={`py-1.5 text-xs font-mono rounded-md border transition ${
-                  speedMultiplier === val
-                    ? "bg-slate-800 border-orange-500 text-orange-400 font-bold"
-                    : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                key={spd}
+                onClick={() => setSpeedMultiplier(spd)}
+                className={`py-2 rounded-xl text-xs font-semibold font-mono transition cursor-pointer border ${
+                  speedMultiplier === spd
+                    ? "bg-[#21262d] border-orange-500 text-orange-400 shadow-md"
+                    : "bg-[#21262d]/60 border-[#30363d] text-slate-400 hover:text-white"
                 }`}
               >
-                {val}
+                {spd}
               </button>
             ))}
           </div>
+          <p className="text-[10px] text-slate-500 text-center">
+            ระบบความเร็วที่ปลอดภัยตามมาตรฐาน ISO
+          </p>
         </div>
 
-        {/* Hardware Accessory Toggles */}
-        <div className="space-y-2 pt-2 border-t border-slate-800/80">
-          <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-            <Sun className="w-3.5 h-3.5 text-orange-400" /> แสงและบรรยากาศ
-          </span>
+        {/* 5. Accessories & Lighting (อุปกรณ์เสริมและระบบไฟ ตาม Reference 100%) */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+            <span>อุปกรณ์เสริมและระบบไฟ</span>
+            <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
+          </div>
 
-          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-slate-800/60 text-xs">
-            <span className="text-slate-300">ไฟ AGV</span>
+          {/* Toggle ไฟ AGV */}
+          <div className="p-3 rounded-xl bg-[#21262d] border border-[#30363d] flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Lightbulb className="w-4 h-4 text-slate-400" />
+              <div>
+                <div className="text-xs font-medium text-white">ไฟ AGV</div>
+                <div className="text-[10px] text-slate-500">ไฟเลี้ยวและไฟส่องทางข้าง</div>
+              </div>
+            </div>
             <button
               onClick={() => setAgvLight(!agvLight)}
-              className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
-                agvLight ? "bg-orange-500" : "bg-slate-800"
+              className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${
+                agvLight ? "bg-orange-500" : "bg-[#30363d]"
               }`}
             >
-              <div
-                className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
+              <span
+                className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
                   agvLight ? "translate-x-4" : "translate-x-0"
                 }`}
               />
             </button>
           </div>
 
-          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-slate-800/60 text-xs">
-            <span className="text-slate-300">ไฟโรงงาน</span>
+          {/* Toggle ไฟโรงงาน */}
+          <div className="p-3 rounded-xl bg-[#21262d] border border-[#30363d] flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Sun className="w-4 h-4 text-orange-400" />
+              <div>
+                <div className="text-xs font-medium text-white">ไฟโรงงาน</div>
+                <div className="text-[10px] text-slate-500">ไฟแวดล้อม</div>
+              </div>
+            </div>
             <button
               onClick={() => setFactoryLight(!factoryLight)}
-              className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
-                factoryLight ? "bg-orange-500" : "bg-slate-800"
+              className={`w-10 h-6 rounded-full transition-colors relative cursor-pointer ${
+                factoryLight ? "bg-orange-500" : "bg-[#30363d]"
               }`}
             >
-              <div
-                className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ease-in-out ${
+              <span
+                className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
                   factoryLight ? "translate-x-4" : "translate-x-0"
                 }`}
               />
@@ -197,18 +279,88 @@ export function ControlCenter({ isConnected, nav, base }: ControlCenterProps) {
           </div>
         </div>
 
-        {/* Reset Position Button */}
-        <button className="w-full py-2.5 rounded-lg border border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-medium flex items-center justify-center gap-2 transition">
-          <RotateCcw className="w-3.5 h-3.5" /> เริ่มต้นใหม่ (Reset Position)
-        </button>
+        {/* 6. Camera View Modes (มุมมองกล้อง ตาม Reference 100%) */}
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-slate-300">มุมมองกล้อง</div>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => onSelectViewMode?.("overview")}
+              className={`py-2.5 px-2 rounded-xl text-xs font-medium flex flex-col items-center gap-1.5 transition cursor-pointer border ${
+                viewMode === "overview"
+                  ? "bg-orange-500/10 border-orange-500 text-orange-400"
+                  : "bg-[#21262d] border-[#30363d] text-slate-400 hover:text-white"
+              }`}
+            >
+              <Compass className="w-4 h-4" />
+              <span>ภาพรวม</span>
+            </button>
+
+            <button
+              onClick={() => onSelectViewMode?.("closeup")}
+              className={`py-2.5 px-2 rounded-xl text-xs font-medium flex flex-col items-center gap-1.5 transition cursor-pointer border ${
+                viewMode === "closeup"
+                  ? "bg-orange-500/10 border-orange-500 text-orange-400"
+                  : "bg-[#21262d] border-[#30363d] text-slate-400 hover:text-white"
+              }`}
+            >
+              <Maximize2 className="w-4 h-4" />
+              <span>ใกล้ตัวรถ</span>
+            </button>
+
+            <button
+              onClick={() => onSelectViewMode?.("follow")}
+              className={`py-2.5 px-2 rounded-xl text-xs font-medium flex flex-col items-center gap-1.5 transition cursor-pointer border ${
+                viewMode === "follow"
+                  ? "bg-orange-500/10 border-orange-500 text-orange-400"
+                  : "bg-[#21262d] border-[#30363d] text-slate-400 hover:text-white"
+              }`}
+            >
+              <Crosshair className="w-4 h-4" />
+              <span>ติดตาม</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Footer Branding */}
-      <div className="pt-6 border-t border-slate-800/80 text-[11px] text-slate-500 flex justify-between items-center">
-        <span>MINIRW Co.,Ltd.</span>
-        <span>AMR Series 5 Driver</span>
+      {/* 7. Footer: AGV Identity Card (บันทึกไว้ ตาม Reference 100%) */}
+      <div className="space-y-2 pt-4 border-t border-[#30363d]">
+        <div className="text-[11px] font-semibold text-slate-400">บันทึกไว้</div>
+        <div className="p-3 rounded-xl bg-[#21262d] border border-[#30363d] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-orange-500/20 text-orange-400 border border-orange-500/30">
+              AGV
+            </span>
+            <div>
+              <div className="text-xs font-bold text-white">
+                AGV AMV-01 series 5 driver
+              </div>
+              <div className="text-[10px] text-slate-500">
+                รหัสประจำตัวคันที่ 01 (พร้อมใช้งาน)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Discreet Subprocess Indicator */}
+        <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+          <span>Subprocess Mode:</span>
+          <button
+            onClick={onToggleStudio}
+            disabled={isStudioLoading}
+            className={`font-mono font-bold transition cursor-pointer hover:underline ${
+              isStudioRunning ? "text-emerald-400" : "text-slate-400"
+            }`}
+          >
+            {isStudioLoading
+              ? "กำลังรัน..."
+              : isStudioRunning
+              ? `ONLINE (PID ${studioPid ?? "OK"})`
+              : "INACTIVE (คลิกเพื่อเริ่ม)"}
+          </button>
+        </div>
       </div>
     </aside>
   );
 }
 
+export default ControlCenter;

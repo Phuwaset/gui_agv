@@ -33,4 +33,3 @@ export function ViewToolbar({ currentMode, onSelectMode }: ViewToolbarProps) {
     </div>
   );
 }
-

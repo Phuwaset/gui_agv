@@ -1,67 +1,94 @@
 import { useState } from "react";
 import "./index.css";
+import { Sliders } from "lucide-react";
 import { Header } from "./components/layout/Header";
 import { StationCanvas } from "./components/visualizer/StationCanvas";
-import { ViewToolbar } from "./components/visualizer/ViewToolbar";
 import { ControlCenter } from "./components/control/ControlCenter";
 import { useTelemetry } from "./hooks/useTelemetry";
+import { useStudioProcess } from "./hooks/useStudioProcess";
+import { useStationManager } from "./hooks/useStationManager";
 
 export function App() {
-  const { telemetry, isConnected, nav, base } = useTelemetry();
+  const { telemetry, isConnected, nav, base, pose } = useTelemetry();
   const [viewMode, setViewMode] = useState<string>("overview");
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+
+  // Subprocess Controller (Offline Studio)
+  const {
+    isRunning: isStudioRunning,
+    pid: studioPid,
+    isLoading: isStudioLoading,
+    toggleStudio,
+  } = useStudioProcess();
+
+  // Station Manager
+  const {
+    stations,
+    selectedStation,
+    setSelectedStation,
+    sendGoStation,
+    sendResetPosition,
+    actionStatus,
+  } = useStationManager();
 
   return (
-    <div className="min-h-screen w-full bg-[#070b13] text-slate-200 flex flex-col font-sans select-none">
-      {/* 1. Header Navigation */}
-      <Header />
+    <div className="h-screen w-screen bg-[#161b22] text-slate-200 flex flex-col font-sans select-none overflow-hidden">
+      {/* 1. Top Header Navigation */}
+      <Header
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        isConnected={isConnected}
+      />
 
-      {/* 2. Main Workspace (Split Layout) */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Left / Center: 2D Digital Twin & Factory Canvas */}
-        <main className="flex-1 relative bg-gradient-to-b from-[#0a0f1d] via-[#070b14] to-[#04070d] p-8 flex flex-col justify-between overflow-hidden">
-          {/* Subtle Grid Background Pattern */}
-          <div
-            className="absolute inset-0 opacity-20 pointer-events-none"
-            style={{
-              backgroundImage:
-                "linear-gradient(to right, #1e293b 1px, transparent 1px), linear-gradient(to bottom, #1e293b 1px, transparent 1px)",
-              backgroundSize: "40px 40px",
-            }}
+      {/* 2. Main Workspace (Edge-to-Edge Canvas + Sidebar) */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+        {/* Left / Center: Fullscreen RViz Replacement Canvas */}
+        <main className="flex-1 relative w-full h-full overflow-hidden">
+          <StationCanvas
+            nav={nav}
+            base={base}
+            pose={pose}
+            stations={stations}
+            selectedStation={selectedStation}
+            onSelectStation={setSelectedStation}
+            viewMode={viewMode}
+            onSelectViewMode={setViewMode}
+            lastUpdated={telemetry?.lastUpdated}
           />
-
-          {/* Title Overlay */}
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 text-xs font-mono tracking-widest text-orange-400 uppercase">
-              <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
-              DIGITAL SHOWROOM / 01
-            </div>
-            <h2 className="text-4xl lg:text-5xl font-black text-white tracking-tight mt-1">
-              Factory{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-400">
-                in motion.
-              </span>
-            </h2>
-            <p className="text-sm text-slate-400 mt-2 max-w-md">
-              สำรวจ ตรวจสอบ และควบคุม AGV ยอดนิยมแบบ Real-time เชื่อมต่อกับ
-              rosbridge :9090
-            </p>
-          </div>
-
-          {/* Center 2D Station Visualizer */}
-          <div className="relative z-10 my-8 flex-1 flex items-center justify-center">
-            <StationCanvas
-              nav={nav}
-              base={base}
-              lastUpdated={telemetry?.lastUpdated}
-            />
-          </div>
-
-          {/* Bottom Toolbar: Camera / View Mode */}
-          <ViewToolbar currentMode={viewMode} onSelectMode={setViewMode} />
         </main>
 
-        {/* Right Sidebar: AGV Explorer Control Center */}
-        <ControlCenter isConnected={isConnected} nav={nav} base={base} />
+        {/* Right Sidebar: AGV Explorer & Control Center */}
+        {isSidebarOpen && (
+          <ControlCenter
+            isConnected={isConnected}
+            nav={nav}
+            base={base}
+            onClose={() => setIsSidebarOpen(false)}
+            isStudioRunning={isStudioRunning}
+            studioPid={studioPid}
+            isStudioLoading={isStudioLoading}
+            onToggleStudio={toggleStudio}
+            stations={stations}
+            selectedStation={selectedStation}
+            onSelectStation={setSelectedStation}
+            onGoStation={sendGoStation}
+            onResetPosition={sendResetPosition}
+            actionStatus={actionStatus}
+            viewMode={viewMode}
+            onSelectViewMode={setViewMode}
+          />
+        )}
+
+        {/* Quick Open Pill Button (if sidebar collapsed) */}
+        {!isSidebarOpen && (
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="fixed right-6 bottom-6 z-30 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl shadow-xl shadow-orange-500/30 flex items-center gap-2 text-xs font-bold transition active:scale-95 border border-orange-400/40 cursor-pointer"
+          >
+            <Sliders className="w-4 h-4" />
+            <span>เปิดแผงควบคุม AGV</span>
+          </button>
+        )}
       </div>
     </div>
   );
