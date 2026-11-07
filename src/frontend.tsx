@@ -17,6 +17,7 @@ const app = (
   </StrictMode>
 );
 
-// https://bun.com/docs/bundler/hot-reloading#import-meta-hot-data
+//  https://bun.com/docs/bundler/hot-reloading#import-meta-hot-data
+//  จัดดการเรื่องระบบ Hot Module Replacement (HMR) ของ Bun ทำให้เวลาเราแก้โค้ดแล้วจออัปเดตสดๆ
 type HotData = { root?: Root };
 ((import.meta.hot.data as HotData).root ??= createRoot(elem)).render(app);

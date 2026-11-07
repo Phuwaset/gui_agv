@@ -41,9 +41,10 @@ const server = serve({
 
     "/api/robot/go-station": async (req) => {
       try {
-        const body = (await req.json()) as { target_station: string };
+        const body = (await req.json()) as { target_station?: string; station_name?: string };
+        const station = body.target_station || body.station_name || "";
         const res = await rosBridge.callService("/go_station", {
-          target_station: body.target_station,
+          target_station: station,
         });
         return Response.json(res);
       } catch (err: any) {
@@ -56,6 +57,19 @@ const server = serve({
         const body = (await req.json()) as { target_station: string };
         const res = await rosBridge.callService("/reset_position", {
           target_station: body.target_station,
+        });
+        return Response.json(res);
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    },
+
+    "/api/robot/cmd-req": async (req) => {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { command?: string };
+        const cmd = body.command || "Next_station";
+        const res = await rosBridge.callService("/cmd_req", {
+          command: cmd,
         });
         return Response.json(res);
       } catch (err: any) {
@@ -145,7 +159,21 @@ const server = serve({
       return new Response("Map image not found", { status: 404 });
     },
 
-    // 5. เสิร์ฟหน้าเว็บ React (index.html + bundle TSX/CSS บนแรมอัตโนมัติ)
+    // 6. เสิร์ฟโมเดล 3D AGV สำหรับ Three.js (Digital Twin)
+    "/module/agv.glb": async () => {
+      const file = Bun.file("./public/module/agv.glb");
+      if (await file.exists()) {
+        return new Response(file, {
+          headers: {
+            "Content-Type": "model/gltf-binary",
+            "Cache-Control": "public, max-age=86400",
+          },
+        });
+      }
+      return new Response("3D model not found", { status: 404 });
+    },
+
+    // 7. เสิร์ฟหน้าเว็บ React (index.html + bundle TSX/CSS บนแรมอัตโนมัติ)
     "/*": index,
   },
 

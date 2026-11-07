@@ -52,7 +52,8 @@ export class RosBridgeService {
 
         // 3. ขอฟังพิกัดตัวรถบนแผนที่ (จาก amv_pose_publish หรือ tf)
         this.subscribe("/amv_current_pose", "geometry_msgs/Pose2D");
-        this.subscribe("/amv_pose_tf", "geometry_msgs/Pose2D");
+        this.subscribe("/amv_pose_tf", "geometry_msgs/Pose");
+        this.subscribe("/planned_path", "nav_msgs/Path");
       };
 
       this.ws.onmessage = (event) => {
@@ -133,20 +134,21 @@ export class RosBridgeService {
           y: msg.y,
           theta: typeof msg.theta === "number" ? msg.theta : 0,
         };
-      } else if (msg.pose?.pose?.position) {
-        // รองรับกรณีส่งมาเป็น PoseWithCovarianceStamped (amcl_pose)
-        const pos = msg.pose.pose.position;
-        const ori = msg.pose.pose.orientation;
-        // แปลง Quaternion เป็นองศา Yaw เบื้องต้น
-        const siny_cosp = 2 * (ori.w * ori.z + ori.x * ori.y);
-        const cosy_cosp = 1 - 2 * (ori.y * ori.y + ori.z * ori.z);
-        const yawDeg = (Math.atan2(siny_cosp, cosy_cosp) * 180) / Math.PI;
+      } else {
+        // รองรับ geometry_msgs/Pose, PoseStamped และ PoseWithCovarianceStamped
+        const p = msg.position || msg.pose?.position || msg.pose?.pose?.position;
+        const q = msg.orientation || msg.pose?.orientation || msg.pose?.pose?.orientation;
+        if (p && q) {
+          const siny_cosp = 2 * (q.w * q.z + (q.x || 0) * (q.y || 0));
+          const cosy_cosp = 1 - 2 * ((q.y || 0) * (q.y || 0) + q.z * q.z);
+          const yawDeg = (Math.atan2(siny_cosp, cosy_cosp) * 180) / Math.PI;
 
-        this.telemetry.pose = {
-          x: Number(pos.x.toFixed(2)),
-          y: Number(pos.y.toFixed(2)),
-          theta: Number(yawDeg.toFixed(1)),
-        };
+          this.telemetry.pose = {
+            x: Number(p.x.toFixed(2)),
+            y: Number(p.y.toFixed(2)),
+            theta: Number(yawDeg.toFixed(1)),
+          };
+        }
       }
     }
   }

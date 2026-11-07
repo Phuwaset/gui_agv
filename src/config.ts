@@ -13,8 +13,8 @@ export const CONFIG = {
   // React และ Backend API
   PORT: Number(getEnv("PORT", "3000")),
 
-  // IP ของหุ่นยนต์ rosbridge
-  ROBOT_WS_URL: getEnv("ROBOT_WS_URL", "ws://192.168.50.115:9090"),
+  // IP ของหุ่นยนต์ rosbridge (Default: Local Simulation บนพอร์ต 9090)
+  ROBOT_WS_URL: getEnv("ROBOT_WS_URL", "ws://localhost:9090"),
 };
 
 // ข้อมูลพิกัดและสเปกแผนที่โรงงาน Mektec (ส่งมอบจากพี่ ROS)

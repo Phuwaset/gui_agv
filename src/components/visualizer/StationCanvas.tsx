@@ -31,6 +31,7 @@ interface DynamicMapData {
 }
 
 interface StationCanvasProps {
+  theme?: "light" | "dark";
   nav: NavigationStatus | null;
   base: BaseStatus | null;
   pose?: RobotPose | null;
@@ -43,6 +44,7 @@ interface StationCanvasProps {
 }
 
 export function StationCanvas({
+  theme = "dark",
   nav,
   base,
   pose,
@@ -222,8 +224,10 @@ export function StationCanvas({
         canvas.height = height;
       }
 
-      // 5.1 Clear Background (Industrial Blueprint Slate #181e26)
-      ctx.fillStyle = "#161b22";
+      const isDark = theme === "dark";
+
+      // 5.1 Clear Background (Industrial Blueprint Slate / Soft CAD Gray)
+      ctx.fillStyle = isDark ? "#161b22" : "#eef2f6";
       ctx.fillRect(0, 0, width, height);
 
       // 5.2 Subtle CAD Grid Lines (1-meter & 5-meter)
@@ -233,7 +237,7 @@ export function StationCanvas({
       const startX = ((width / 2 + pan.x) % step + step) % step;
       const startY = ((height / 2 + pan.y) % step + step) % step;
 
-      ctx.strokeStyle = "rgba(48, 54, 61, 0.4)";
+      ctx.strokeStyle = isDark ? "rgba(48, 54, 61, 0.4)" : "rgba(203, 213, 225, 0.7)";
       ctx.lineWidth = 1;
       for (let x = startX; x < width; x += step) {
         ctx.beginPath();
@@ -327,7 +331,7 @@ export function StationCanvas({
         );
         ctx.restore();
       }
-
+      
       // 5.5 Layer เส้นทางเดินรถจำลอง (Virtual Tracks ระหว่างสถานี)
       if (stations.length > 1) {
         ctx.save();
@@ -395,42 +399,59 @@ export function StationCanvas({
 
       // กรอบความปลอดภัยรอบตัวรถ
       ctx.beginPath();
-      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.arc(0, 0, 24, 0, Math.PI * 2);
       ctx.fillStyle = isEmergency
         ? "rgba(225, 29, 72, 0.4)"
         : isObstacle
         ? "rgba(245, 158, 11, 0.4)"
-        : "rgba(249, 115, 22, 0.25)";
+        : isDark
+        ? "rgba(249, 115, 22, 0.25)"
+        : "rgba(14, 165, 233, 0.2)";
       ctx.fill();
 
-      // ตัวถังรถ AMR
-      ctx.fillStyle = "#1e293b";
-      ctx.strokeStyle = isEmergency ? "#f43f5e" : isObstacle ? "#f59e0b" : "#f97316";
-      ctx.lineWidth = 2;
+      // ตัวถังรถ AMR (สไตล์ SYNAOS Blue ในโหมดสว่าง)
+      ctx.fillStyle = isDark ? "#1e293b" : "#0f1b5c";
+      ctx.strokeStyle = isEmergency
+        ? "#f43f5e"
+        : isObstacle
+        ? "#f59e0b"
+        : isDark
+        ? "#f97316"
+        : "#0284c7";
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(-14, -10, 28, 20, 3);
+      ctx.roundRect(-15, -11, 30, 22, 4);
       ctx.fill();
       ctx.stroke();
 
       // สัญลักษณ์หัวรถ
-      ctx.fillStyle = "#f97316";
+      ctx.fillStyle = isDark ? "#f97316" : "#38bdf8";
       ctx.beginPath();
-      ctx.moveTo(12, 0);
-      ctx.lineTo(6, -4);
-      ctx.lineTo(6, 4);
+      ctx.moveTo(13, 0);
+      ctx.lineTo(6, -5);
+      ctx.lineTo(6, 5);
       ctx.fill();
 
       ctx.restore();
 
-      // ป้ายกำกับตัวรถ
+      // ป้ายกำกับตัวรถ (Badge Pill ลอยเหนือตัวรถ สไตล์ SYNAOS)
       ctx.save();
-      ctx.font = "bold 10px monospace";
+      const badgeW = 54;
+      const badgeH = 18;
+      const badgeX = robotPos.x - badgeW / 2;
+      const badgeY = robotPos.y - 34;
+
+      ctx.fillStyle = isDark ? "rgba(15, 23, 42, 0.85)" : "#0f1b5c";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+      ctx.fill();
+
+      ctx.font = "bold 9px sans-serif";
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
-      ctx.fillText("AMV-01", robotPos.x, robotPos.y - 24);
-      ctx.font = "9px monospace";
-      ctx.fillStyle = "#f97316";
-      ctx.fillText(`${robotYaw.toFixed(1)}°`, robotPos.x, robotPos.y - 14);
+      ctx.textBaseline = "middle";
+      ctx.fillText("AGV-001", robotPos.x, badgeY + badgeH / 2);
+
       ctx.restore();
     };
 
@@ -450,6 +471,7 @@ export function StationCanvas({
     mapLoaded,
     mapMeta,
     rosToCanvas,
+    theme,
   ]);
 
   // Mouse Handlers
@@ -485,7 +507,7 @@ export function StationCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full flex-1 overflow-hidden select-none bg-[#161b22]"
+      className="relative w-full h-full flex-1 overflow-hidden select-none bg-slate-100 dark:bg-[#161b22] transition-colors"
     >
       {/* 1. Main Canvas (Edge-to-Edge) */}
       <canvas
@@ -498,59 +520,63 @@ export function StationCanvas({
         className="w-full h-full cursor-grab active:cursor-grabbing block"
       />
 
-      {/* 2. Top-Left Floating HUD (ตาม Reference 100%) */}
+      {/* 2. Top-Left Floating HUD */}
       <div className="absolute top-6 left-6 pointer-events-none z-20">
-        <div className="flex items-center gap-1.5 text-[11px] font-mono tracking-wider text-orange-400 font-semibold uppercase">
-          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-          DIGITAL SHOWROOM 2.01
+        <div className="flex items-center gap-1.5 text-[11px] font-mono tracking-wider text-sky-600 dark:text-orange-400 font-semibold uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-500 dark:bg-orange-500 animate-pulse" />
+          AMR FLEET • DIGITAL SHOWROOM
         </div>
-        <h1 className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-none mt-1">
+        <h1 className="text-3xl lg:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-none mt-1">
           Factory
           <br />
-          <span className="text-orange-500">in motion.</span>
+          <span className="text-[#0f1b5c] dark:text-orange-500">in motion.</span>
         </h1>
-        <p className="text-xs text-slate-400 mt-1.5 tracking-wide">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 tracking-wide">
           Real-time AMR monitoring AGV-AMV01
         </p>
       </div>
 
-      {/* 3. Top-Right Floating Controls (DAY SCENE & Fullscreen) */}
+      {/* 3. Top-Right Floating Controls */}
       <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
-        <button
-          onClick={() => {}}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#21262d]/90 hover:bg-[#30363d] border border-[#30363d] text-xs font-medium text-slate-200 transition shadow-lg cursor-pointer"
-        >
-          <Sun className="w-3.5 h-3.5 text-orange-400" />
-          <span>DAY SCENE</span>
-        </button>
         <button
           onClick={toggleFullscreen}
           title="เต็มจอ (Fullscreen)"
-          className="p-2 rounded-lg bg-[#21262d]/90 hover:bg-[#30363d] border border-[#30363d] text-slate-200 transition shadow-lg cursor-pointer"
+          className="p-2 rounded-lg bg-white/90 dark:bg-[#21262d]/90 hover:bg-slate-100 dark:hover:bg-[#30363d] border border-slate-200 dark:border-[#30363d] text-slate-700 dark:text-slate-200 transition shadow-md cursor-pointer"
         >
-          <Maximize2 className="w-3.5 h-3.5" />
+          <Maximize2 className="w-4 h-4" />
         </button>
       </div>
 
-      {/* 4. Bottom-Left Floating View Mode Toolbar (ตาม Reference) */}
-      <div className="absolute bottom-6 left-6 flex items-center gap-1.5 p-1 rounded-xl bg-[#21262d]/90 backdrop-blur-md border border-[#30363d] z-20 shadow-xl">
+      {/* 4. Bottom-Left Floating View Mode Toolbar */}
+      <div className="absolute bottom-6 left-6 flex items-center gap-1.5 p-1 rounded-xl bg-white/90 dark:bg-[#21262d]/90 backdrop-blur-md border border-slate-200 dark:border-[#30363d] z-20 shadow-lg">
         <button
           onClick={() => onSelectViewMode?.("overview")}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
             viewMode === "overview"
-              ? "bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30"
-              : "text-slate-300 hover:text-white hover:bg-slate-800"
+              ? "bg-[#0f1b5c] text-white font-bold shadow-md dark:bg-orange-500"
+              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
         >
           <Compass className="w-3.5 h-3.5" />
           <span>ภาพรวม</span>
         </button>
         <button
+          onClick={() => onSelectViewMode?.("closeup")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+            viewMode === "closeup"
+              ? "bg-[#0f1b5c] text-white font-bold shadow-md dark:bg-orange-500"
+              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>ใกล้ตัวรถ (3D)</span>
+        </button>
+        <button
           onClick={() => onSelectViewMode?.("follow")}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
             viewMode === "follow"
-              ? "bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30"
-              : "text-slate-300 hover:text-white hover:bg-slate-800"
+              ? "bg-[#0f1b5c] text-white font-bold shadow-md dark:bg-orange-500"
+              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
           }`}
         >
           <Crosshair className="w-3.5 h-3.5" />
@@ -559,13 +585,13 @@ export function StationCanvas({
       </div>
 
       {/* 5. Bottom-Right Floating Dimension Info */}
-      <div className="absolute bottom-6 right-6 hidden md:flex items-center gap-3 text-[11px] font-mono text-slate-400 pointer-events-none z-20 bg-[#21262d]/80 px-3 py-1.5 rounded-lg border border-[#30363d]">
+      <div className="absolute bottom-6 right-6 hidden md:flex items-center gap-3 text-[11px] font-mono text-slate-500 dark:text-slate-400 pointer-events-none z-20 bg-white/90 dark:bg-[#21262d]/80 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#30363d] shadow-sm">
         <span>
           ขนาดโรงงานจริง: <strong>{mapMeta.realWidth}m x {mapMeta.realHeight}m</strong>
         </span>
-        <span className="text-slate-600">|</span>
-        <span className={mapLoaded ? "text-emerald-400 font-bold" : "text-amber-400"}>
-          {mapLoaded ? "ROS MAP ACTIVE" : "CONNECTING MAP..."}
+        <span className="text-slate-300 dark:text-slate-600">|</span>
+        <span className={mapLoaded ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-amber-500"}>
+          {mapLoaded ? "MAP ACTIVE" : "CONNECTING..."}
         </span>
       </div>
 

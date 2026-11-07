@@ -6,6 +6,6 @@
   }
 
   body {
-    @apply min-w-[320px] min-h-screen relative m-0 bg-slate-950 text-slate-100 overflow-x-hidden;
+    @apply min-w-[320px] min-h-screen relative m-0 bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 overflow-x-hidden;
   }
 }

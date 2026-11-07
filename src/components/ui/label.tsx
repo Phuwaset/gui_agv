@@ -18,7 +18,7 @@ function Label({
       )}
       {...props}
     />
-  );
+  ); 
 }
 
 export { Label };
