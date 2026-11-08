@@ -1,5 +1,20 @@
 import { useState } from "react";
-import { X, Play, RotateCcw, Battery, BatteryCharging, ShieldAlert } from "lucide-react";
+import {
+  X,
+  Play,
+  RotateCcw,
+  Battery,
+  BatteryCharging,
+  ShieldAlert,
+  ListOrdered,
+  ArrowRight,
+  Trash2,
+  Plus,
+  SkipForward,
+  Ban,
+  PackageCheck,
+  Check,
+} from "lucide-react";
 import type {
   BaseStatus,
   NavigationStatus,
@@ -18,6 +33,20 @@ interface InspectorPanelProps {
   onSelectStation: (station: StationData) => void;
   onGoStation: (target: string) => Promise<any>;
   onResetPosition: (target: string) => Promise<any>;
+  // Queue & Pick & Place Props
+  stationQueue: string[];
+  onAddToQueue: (stationName: string) => void;
+  onRemoveFromQueue: (index: number) => void;
+  onClearQueue: () => void;
+  onGoStationQueue: (queue: string[]) => Promise<any>;
+  sendStation: string;
+  onSelectSendStation: (st: string) => void;
+  receiveStation: string;
+  onSelectReceiveStation: (st: string) => void;
+  onGoStationList: (sendStation: string, receiveStation: string) => Promise<any>;
+  onNextStation: () => Promise<any>;
+  onCancelQueue: () => Promise<any>;
+  onCancelNavigation: () => Promise<any>;
   actionStatus?: string;
   onClose: () => void;
 }
@@ -90,10 +119,24 @@ export function InspectorPanel({
   onSelectStation,
   onGoStation,
   onResetPosition,
+  stationQueue,
+  onAddToQueue,
+  onRemoveFromQueue,
+  onClearQueue,
+  onGoStationQueue,
+  sendStation,
+  onSelectSendStation,
+  receiveStation,
+  onSelectReceiveStation,
+  onGoStationList,
+  onNextStation,
+  onCancelQueue,
+  onCancelNavigation,
   actionStatus,
   onClose,
 }: InspectorPanelProps) {
   const [tab, setTab] = useState<"details" | "order">("details");
+  const [orderMode, setOrderMode] = useState<"single" | "queue" | "list">("single");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const state = getState(isConnected, nav, base);
@@ -113,13 +156,14 @@ export function InspectorPanel({
     ? "⚠️ ปิดการสั่งการ: หุ่นยนต์กำลังวิ่งนำทางอยู่"
     : "";
 
-  const handleLaunchMission = async () => {
+  // 1. Single Mission
+  const handleLaunchSingle = async () => {
     if (!selectedStation) return;
     setIsSubmitting(true);
     try {
       await onGoStation(selectedStation.name);
     } catch (err) {
-      console.error("[ERROR] [Inspector] Failed to launch mission:", err);
+      console.error("[ERROR] [Inspector] Failed to launch single mission:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -137,10 +181,58 @@ export function InspectorPanel({
     }
   };
 
+  // 2. Queue Mission (Q1-Q5)
+  const handleLaunchQueue = async () => {
+    if (stationQueue.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      await onGoStationQueue(stationQueue);
+    } catch (err) {
+      console.error("[ERROR] [Inspector] Failed to start queue:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleNextStation = async () => {
+    setIsSubmitting(true);
+    try {
+      await onNextStation();
+    } catch (err) {
+      console.error("[ERROR] [Inspector] Failed to command Next station:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelQueue = async () => {
+    setIsSubmitting(true);
+    try {
+      await onCancelQueue();
+    } catch (err) {
+      console.error("[ERROR] [Inspector] Failed to cancel queue:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 3. Pick & Place Mission (Send & Receive)
+  const handleLaunchPickPlace = async () => {
+    if (!sendStation && !receiveStation) return;
+    setIsSubmitting(true);
+    try {
+      await onGoStationList(sendStation, receiveStation);
+    } catch (err) {
+      console.error("[ERROR] [Inspector] Failed to start pick & place:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <aside className="w-full lg:w-[350px] shrink-0 h-full flex flex-col bg-white dark:bg-[#0f172a] border-l border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-xl transition-colors select-none z-30">
+    <aside className="w-full lg:w-[370px] shrink-0 h-full flex flex-col bg-white dark:bg-[#0f172a] border-l border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-xl transition-colors select-none z-30">
       {/* 1. Header: AGV-001 (SYNAOS / MINIRW) */}
-      <div className="p-5 pb-3 flex items-start justify-between">
+      <div className="p-4 pb-2 flex items-start justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             AGV-001
@@ -164,8 +256,8 @@ export function InspectorPanel({
         </button>
       </div>
 
-      {/* 2. Tabs: Details / Order (ตรงตาม Reference) */}
-      <div className="px-5 flex gap-6 border-b border-slate-200 dark:border-slate-800 text-[13px]">
+      {/* 2. Primary Tabs: Details / Order */}
+      <div className="px-4 flex gap-6 border-b border-slate-200 dark:border-slate-800 text-[13px]">
         <button
           type="button"
           onClick={() => setTab("details")}
@@ -180,18 +272,23 @@ export function InspectorPanel({
         <button
           type="button"
           onClick={() => setTab("order")}
-          className={`pb-2.5 -mb-px border-b-2 font-semibold transition cursor-pointer ${
+          className={`pb-2.5 -mb-px border-b-2 font-semibold transition cursor-pointer flex items-center gap-1.5 ${
             tab === "order"
               ? "border-[#0f1b5c] text-[#0f1b5c] dark:border-sky-400 dark:text-sky-300"
               : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
           }`}
         >
-          Order / Mission
+          <span>Order / Mission</span>
+          {stationQueue.length > 0 && (
+            <span className="w-4 h-4 rounded-full bg-sky-500 text-white text-[9px] flex items-center justify-center font-bold">
+              {stationQueue.length}
+            </span>
+          )}
         </button>
       </div>
 
       {/* 3. Panel Body */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {tab === "details" ? (
           <div>
             <Row label="AGV Type">SYNAOS-AMV-heavy</Row>
@@ -241,90 +338,444 @@ export function InspectorPanel({
             </Row>
           </div>
         ) : (
-          <div className="py-2 space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <span>Target Station</span>
-              <span className="font-mono font-medium">{stations.length} available</span>
+          <div className="space-y-3">
+            {/* Sub-Mode Segmented Selector: Single / Queue / Pick & Place */}
+            <div className="flex bg-slate-100 dark:bg-slate-900/80 p-1 rounded-lg gap-1 border border-slate-200 dark:border-slate-800 text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setOrderMode("single")}
+                className={`flex-1 py-1.5 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                  orderMode === "single"
+                    ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-xs"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <span>เดี่ยว (Single)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderMode("queue")}
+                className={`flex-1 py-1.5 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                  orderMode === "queue"
+                    ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-xs"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <span>คิว (Queue)</span>
+                {stationQueue.length > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-sky-500 text-white text-[9px] flex items-center justify-center font-bold">
+                    {stationQueue.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderMode("list")}
+                className={`flex-1 py-1.5 rounded-md text-center transition cursor-pointer flex items-center justify-center gap-1 ${
+                  orderMode === "list"
+                    ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-xs"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <span>รับ-ส่ง (List)</span>
+              </button>
             </div>
 
-            <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
-              {stations.map((st) => {
-                const isSelected = selectedStation?.name === st.name;
-                return (
-                  <button
-                    key={st.name}
-                    type="button"
-                    onClick={() => onSelectStation(st)}
-                    className={`w-full p-2.5 rounded-lg text-left transition border cursor-pointer flex items-center justify-between ${
-                      isSelected
-                        ? "bg-indigo-50 dark:bg-sky-500/10 border-[#0f1b5c] dark:border-sky-400 text-[#0f1b5c] dark:text-sky-300 font-semibold shadow-sm"
-                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    <div>
-                      <div className="text-xs font-medium">{st.name}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        Pin: {st.pin} | ({st.x.toFixed(1)}, {st.y.toFixed(1)})
-                      </div>
-                    </div>
-                    {isSelected && (
-                      <span className="text-[10px] uppercase font-bold text-sky-500">
-                        Selected
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
+            {/* Hardware Interlock Banner */}
             {isInterlocked && (
-              <div className="p-2.5 rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>{interlockReason}</span>
+              <div className="p-2.5 rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 truncate">
+                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="truncate">{interlockReason}</span>
+                </div>
+                {isMoving && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      try {
+                        await onCancelNavigation();
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    disabled={isSubmitting}
+                    className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] shrink-0 transition cursor-pointer shadow-xs disabled:opacity-50"
+                    title="ยกเลิกเป้าหมายใน move_base ทันทีและปลดล็อคสถานะการวิ่ง"
+                  >
+                    ปลดล็อค / หยุดวิ่ง
+                  </button>
+                )}
               </div>
             )}
 
+            {/* Status Message from ROS Service */}
             {actionStatus && (
-              <div className="p-2.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-300">
-                {actionStatus}
+              <div className="p-2.5 rounded-md bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-[11px] font-mono text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping shrink-0" />
+                <span className="truncate">{actionStatus}</span>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* SUB-MODE 1: SINGLE STATION                                  */}
+            {/* ============================================================ */}
+            {orderMode === "single" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span>เลือกสถานีเป้าหมายเดี่ยว</span>
+                  <span className="font-mono font-medium">{stations.length} สถานี</span>
+                </div>
+
+                <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                  {stations.map((st) => {
+                    const isSelected = selectedStation?.name === st.name;
+                    return (
+                      <button
+                        key={st.name}
+                        type="button"
+                        onClick={() => onSelectStation(st)}
+                        className={`w-full p-2.5 rounded-lg text-left transition border cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? "bg-indigo-50 dark:bg-sky-500/10 border-[#0f1b5c] dark:border-sky-400 text-[#0f1b5c] dark:text-sky-300 font-semibold shadow-sm"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <div>
+                          <div className="text-xs font-medium">{st.name}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            Pin: {st.pin} | ({st.x.toFixed(1)}, {st.y.toFixed(1)})
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span className="text-[10px] uppercase font-bold text-sky-500">
+                            Selected
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* SUB-MODE 2: STATION QUEUE (Q1 - Q5)                          */}
+            {/* ============================================================ */}
+            {orderMode === "queue" && (
+              <div className="space-y-3">
+                {/* Active Queue Slot Visualization */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                      <ListOrdered className="w-3.5 h-3.5 text-sky-500" />
+                      คิวเป้าหมาย ({stationQueue.length}/5)
+                    </span>
+                    {stationQueue.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={onClearQueue}
+                        className="text-[11px] text-rose-500 hover:text-rose-600 flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>ล้างคิว</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {stationQueue.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      คิวว่างเปล่า — กด [+] ด้านล่างเพื่อเพิ่มสถานีเข้าคิว
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {stationQueue.map((stName, idx) => {
+                        const stObj = stations.find((s) => s.name === stName);
+                        return (
+                          <div
+                            key={`${stName}-${idx}`}
+                            className="flex items-center justify-between p-2 rounded-md bg-white dark:bg-slate-800/80 border border-sky-300 dark:border-sky-500/30 text-xs shadow-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 rounded bg-sky-500 text-white font-mono font-bold text-[10px]">
+                                Q{idx + 1}
+                              </span>
+                              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                {stName}
+                              </span>
+                              {stObj && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  ({stObj.pin})
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onRemoveFromQueue(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition cursor-pointer"
+                              title="ลบออกจากคิว"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Station Selection List for Queue */}
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    <span>คลิกเพื่อเพิ่มเข้าคิว:</span>
+                    <span className="text-[10px] text-slate-400">
+                      {stationQueue.length >= 5 ? "คิวเต็มแล้ว (5/5)" : "เลือกได้อีก " + (5 - stationQueue.length) + " จุด"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 max-h-[220px] overflow-y-auto pr-1">
+                    {stations.map((st) => {
+                      const countInQueue = stationQueue.filter((q) => q === st.name).length;
+                      const isFull = stationQueue.length >= 5;
+                      return (
+                        <button
+                          key={st.name}
+                          type="button"
+                          disabled={isFull}
+                          onClick={() => onAddToQueue(st.name)}
+                          className={`w-full p-2 rounded-lg text-left transition border cursor-pointer flex items-center justify-between ${
+                            countInQueue > 0
+                              ? "bg-sky-50/50 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/50 text-slate-800 dark:text-slate-200"
+                              : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/50 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          } ${isFull ? "opacity-50 cursor-not-allowed" : ""}`}
+                        >
+                          <div>
+                            <div className="text-xs font-medium">{st.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Pin: {st.pin} | ({st.x.toFixed(1)}, {st.y.toFixed(1)})
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {countInQueue > 0 && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 text-[10px] font-bold">
+                                {countInQueue}x
+                              </span>
+                            )}
+                            <Plus className="w-4 h-4 text-sky-500" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* SUB-MODE 3: PICK & PLACE (SEND & RECEIVE)                    */}
+            {/* ============================================================ */}
+            {orderMode === "list" && (
+              <div className="space-y-3">
+                <div className="p-2.5 rounded-lg bg-sky-50/50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-900/40 text-xs text-sky-800 dark:text-sky-200">
+                  <div className="font-semibold flex items-center gap-1.5 mb-1">
+                    <PackageCheck className="w-4 h-4 text-sky-500" />
+                    <span>ภารกิจรับ-ส่งชิ้นงาน (GoStationList)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    หุ่นยนต์จะวิ่งไปส่งของที่จุดส่ง (Pin Down) ก่อน จากนั้นจะวิ่งไปรับของที่จุดรับ (Pin Up) อัตโนมัติ
+                  </p>
+                </div>
+
+                {/* 1. จุดส่งชิ้นงาน (Send Station) */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                      1. จุดส่งชิ้นงาน (Send Station)
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white font-mono text-[9px] font-bold">
+                      Pin: Down
+                    </span>
+                  </div>
+                  <select
+                    value={sendStation}
+                    onChange={(e) => onSelectSendStation(e.target.value)}
+                    className="w-full p-2 text-xs rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 cursor-pointer"
+                  >
+                    <option value="">-- เลือกจุดส่ง (หรือปล่อย None) --</option>
+                    {stations.map((st) => (
+                      <option key={`send-${st.name}`} value={st.name}>
+                        {st.name} (Pin: {st.pin})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Connection Arrow */}
+                <div className="flex items-center justify-center text-slate-400 text-xs gap-1 font-mono">
+                  <span>↓ นำส่งเสร็จสิ้น แล้วมุ่งหน้าไปรับของ ↓</span>
+                </div>
+
+                {/* 2. จุดรับชิ้นงาน (Receive Station) */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                      2. จุดรับชิ้นงาน (Receive Station)
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-white font-mono text-[9px] font-bold">
+                      Pin: Up
+                    </span>
+                  </div>
+                  <select
+                    value={receiveStation}
+                    onChange={(e) => onSelectReceiveStation(e.target.value)}
+                    className="w-full p-2 text-xs rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 cursor-pointer"
+                  >
+                    <option value="">-- เลือกจุดรับ (หรือปล่อย None) --</option>
+                    {stations.map((st) => (
+                      <option key={`recv-${st.name}`} value={st.name}>
+                        {st.name} (Pin: {st.pin})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Summary Box */}
+                {(sendStation || receiveStation) && (
+                  <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-mono text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">
+                      {sendStation || "None"}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                      {receiveStation || "None"}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* 4. Footer Action Buttons (ตรงตาม Reference) */}
-      <div className="p-5 pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
-        {tab === "order" && (
+      {/* 4. Footer Action Buttons (Contextual based on Active Sub-Mode) */}
+      <div className="p-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+        {tab === "order" ? (
           <>
-            <button
-              type="button"
-              disabled={isSubmitting || !isConnected || !selectedStation}
-              onClick={handleResetPosition}
-              title="Reset position to selected station"
-              className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Reset Pose
-            </button>
-            <button
-              type="button"
-              disabled={isSubmitting || !isConnected || !selectedStation || isInterlocked}
-              onClick={handleLaunchMission}
-              title={isInterlocked ? interlockReason : "สั่งหุ่นยนต์วิ่งไปสถานีเป้าหมาย"}
-              className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[#0f1b5c] hover:bg-[#1a2b85] dark:bg-sky-600 dark:hover:bg-sky-500 transition shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              <span>{isSubmitting ? "Sending..." : "Go Station"}</span>
-            </button>
+            {orderMode === "single" && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isSubmitting || !isConnected || !selectedStation}
+                    onClick={handleResetPosition}
+                    title="Reset position to selected station"
+                    className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Reset Pose
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSubmitting || !isConnected || !selectedStation || isInterlocked}
+                    onClick={handleLaunchSingle}
+                    title={isInterlocked ? interlockReason : "สั่งหุ่นยนต์วิ่งไปสถานีเป้าหมาย"}
+                    className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[#0f1b5c] hover:bg-[#1a2b85] dark:bg-sky-600 dark:hover:bg-sky-500 transition shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>{isSubmitting ? "Sending..." : "Go Station"}</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {orderMode === "queue" && (
+              <>
+                {/* Abort / Cancel Queue is ALWAYS permitted even during movement */}
+                <button
+                  type="button"
+                  disabled={isSubmitting || !isConnected}
+                  onClick={handleCancelQueue}
+                  title="ส่งคำสั่ง 'Cancle Queue' เพื่อหยุดและเคลียร์คิวทั้งหมดใน ROS"
+                  className="px-2.5 py-2 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer disabled:opacity-40 flex items-center gap-1"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Cancel Queue</span>
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Step to Next station in Queue */}
+                  <button
+                    type="button"
+                    disabled={isSubmitting || !isConnected || isMoving}
+                    onClick={handleNextStation}
+                    title={isMoving ? "ไม่สามารถกด Next ได้ขณะหุ่นยนต์กำลังวิ่ง" : "สั่งไปสถานีถัดไปในคิว ('Next')"}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 transition cursor-pointer disabled:opacity-40 flex items-center gap-1"
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                    <span>Next</span>
+                  </button>
+
+                  {/* Start initial Queue */}
+                  <button
+                    type="button"
+                    disabled={isSubmitting || !isConnected || stationQueue.length === 0 || isInterlocked}
+                    onClick={handleLaunchQueue}
+                    title={isInterlocked ? interlockReason : "สั่งหุ่นยนต์เริ่มวิ่งตามลำดับคิว"}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 transition shadow-md cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>{isSubmitting ? "Starting..." : "Start Queue"}</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {orderMode === "list" && (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    isSubmitting ||
+                    !isConnected ||
+                    (!sendStation && !receiveStation) ||
+                    isInterlocked
+                  }
+                  onClick={handleLaunchPickPlace}
+                  title={isInterlocked ? interlockReason : "สั่งหุ่นยนต์เริ่มงานรับ-ส่งชิ้นงาน"}
+                  className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition shadow-md cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  <PackageCheck className="w-4 h-4" />
+                  <span>{isSubmitting ? "Starting..." : "Start Pick & Place"}</span>
+                </button>
+              </>
+            )}
           </>
+        ) : (
+          <div className="w-full flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
-        >
-          Cancel
-        </button>
       </div>
     </aside>
   );

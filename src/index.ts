@@ -3,6 +3,7 @@ import index from "./index.html";
 import { CONFIG, MAP_CONFIG } from "./config";
 import { rosBridge } from "./services/rosBridge";
 import { studioProcess } from "./services/studioProcess";
+import { mapManager } from "./services/mapManager";
 
 const server = serve({
   port: CONFIG.PORT, // พอร์ต 3000
@@ -24,19 +25,117 @@ const server = serve({
       return Response.json(studioProcess.stop());
     },
 
-    // 3. Station Services: อ่าน/สั่งการสถานีผ่าน ROS Service
-    "/api/stations": async () => {
+    // 3. Map & Route Manager API (Native Bun File Handler + ROS Sync)
+    "/api/map-layout": async () => {
+      try {
+        const layout = await mapManager.getMapLayout();
+        return Response.json(layout);
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    },
+
+    // 3.1 Station Services: อ่าน/บันทึกสถานี
+    "/api/stations": async (req) => {
+      if (req.method === "POST") {
+        if (rosBridge.telemetry.navigation?.navigation_status === "Got path planning") {
+          return Response.json(
+            { error: "ห้ามแก้ไขผัง: หุ่นยนต์กำลังวิ่งนำทางอยู่ (Hardware-Interlock)" },
+            { status: 423 },
+          );
+        }
+        try {
+          const body = await req.json();
+          const result = await mapManager.saveStations(body);
+          return Response.json(result);
+        } catch (err: any) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+      }
+
+      // GET: อ่านจาก ROS Service /read_station หรือ Fallback จาก CSV
       try {
         const res = await rosBridge.callService("/read_station", {
           read_action: true,
         });
         return Response.json(res);
       } catch (err: any) {
-        return Response.json(
-          { error: err.message, status: "Offline / Service Unavailable" },
-          { status: 503 },
-        );
+        const layout = await mapManager.getMapLayout();
+        return Response.json({
+          station_total: layout.stations.length,
+          station_data: layout.stations,
+          status: "Read from CSV (ROS Offline)",
+        });
       }
+    },
+
+    // 3.2 Waypoint Services: อ่าน/บันทึก Waypoints
+    "/api/waypoints": async (req) => {
+      if (req.method === "POST") {
+        if (rosBridge.telemetry.navigation?.navigation_status === "Got path planning") {
+          return Response.json(
+            { error: "ห้ามแก้ไขผัง: หุ่นยนต์กำลังวิ่งนำทางอยู่ (Hardware-Interlock)" },
+            { status: 423 },
+          );
+        }
+        try {
+          const body = await req.json();
+          const result = await mapManager.saveWaypoints(body);
+          return Response.json(result);
+        } catch (err: any) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+      }
+
+      const layout = await mapManager.getMapLayout();
+      return Response.json({ waypoints: layout.waypoints });
+    },
+
+    // 3.3 Track Services: อ่าน/บันทึก รางเดินรถ
+    "/api/tracks": async (req) => {
+      if (req.method === "POST") {
+        if (rosBridge.telemetry.navigation?.navigation_status === "Got path planning") {
+          return Response.json(
+            { error: "ห้ามแก้ไขผัง: หุ่นยนต์กำลังวิ่งนำทางอยู่ (Hardware-Interlock)" },
+            { status: 423 },
+          );
+        }
+        try {
+          const body = await req.json();
+          const result = await mapManager.saveTracks(body);
+          return Response.json(result);
+        } catch (err: any) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+      }
+
+      const layout = await mapManager.getMapLayout();
+      return Response.json({ tracks: layout.tracks });
+    },
+
+    // 3.4 ลบโหนดพร้อม Dangling Edge Protection (HTTP 409 Conflict)
+    "/api/node/:name": async (req: any) => {
+      if (req.method === "DELETE") {
+        if (rosBridge.telemetry.navigation?.navigation_status === "Got path planning") {
+          return Response.json(
+            { error: "ห้ามแก้ไขผัง: หุ่นยนต์กำลังวิ่งนำทางอยู่ (Hardware-Interlock)" },
+            { status: 423 },
+          );
+        }
+        try {
+          const url = new URL(req.url);
+          const name = req.params?.name || url.pathname.replace("/api/node/", "");
+          const force = url.searchParams.get("force") === "true";
+          const result = await mapManager.deleteNode(decodeURIComponent(name), force);
+          if (!result.success && result.warning === "DanglingEdgeDetected") {
+            return Response.json(result, { status: 409 });
+          }
+          return Response.json(result);
+        } catch (err: any) {
+          return Response.json({ error: err.message }, { status: 400 });
+        }
+      }
+      return new Response("Method Not Allowed", { status: 405 });
     },
 
     "/api/robot/go-station": async (req) => {
@@ -46,6 +145,52 @@ const server = serve({
         const res = await rosBridge.callService("/go_station", {
           target_station: station,
         });
+        return Response.json(res);
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    },
+
+    // 3.5 Queue Navigation Service: ส่งคำสั่งคิวสถานี 1-5 (amv_service/GoStationQueue.srv)
+    "/api/robot/go-station-queue": async (req) => {
+      try {
+        const body = (await req.json()) as {
+          queue?: string[];
+          target_station_q1?: string;
+          target_station_q2?: string;
+          target_station_q3?: string;
+          target_station_q4?: string;
+          target_station_q5?: string;
+        };
+        const q = body.queue || [];
+        const payload = {
+          target_station_q1: body.target_station_q1 || q[0] || "None",
+          target_station_q2: body.target_station_q2 || q[1] || "None",
+          target_station_q3: body.target_station_q3 || q[2] || "None",
+          target_station_q4: body.target_station_q4 || q[3] || "None",
+          target_station_q5: body.target_station_q5 || q[4] || "None",
+        };
+        console.log("[INFO] [API] Calling /go_station_queue with:", payload);
+        const res = await rosBridge.callService("/go_station_queue", payload);
+        return Response.json(res);
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    },
+
+    // 3.6 Pick & Place Station List Service: รับ-ส่งของ (amv_service/GoStationList.srv)
+    "/api/robot/go-station-list": async (req) => {
+      try {
+        const body = (await req.json()) as {
+          send_station?: string;
+          receive_station?: string;
+        };
+        const payload = {
+          send_station: body.send_station || "None",
+          receive_station: body.receive_station || "None",
+        };
+        console.log("[INFO] [API] Calling /go_station_list with:", payload);
+        const res = await rosBridge.callService("/go_station_list", payload);
         return Response.json(res);
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500 });
@@ -64,13 +209,26 @@ const server = serve({
       }
     },
 
+    // 3.7 Queue Stepper / Cancel Service: ควบคุมคิวสถานี (amv_service/CommandNextStation.srv)
     "/api/robot/cmd-req": async (req) => {
       try {
         const body = (await req.json().catch(() => ({}))) as { command?: string };
-        const cmd = body.command || "Next_station";
+        const cmd = body.command || "Next";
+        console.log("[INFO] [API] Calling /cmd_req with command:", cmd);
         const res = await rosBridge.callService("/cmd_req", {
           command: cmd,
         });
+        return Response.json(res);
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    },
+
+    // 3.8 Cancel Navigation Action: ยกเลิก Goal นำทางใน move_base ทันที (หยุดค้าง / Reset Interlock)
+    "/api/robot/cancel-navigation": async () => {
+      try {
+        console.log("[INFO] [API] Cancelling active navigation...");
+        const res = await rosBridge.cancelNavigation();
         return Response.json(res);
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500 });

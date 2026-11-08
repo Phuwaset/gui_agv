@@ -6,6 +6,7 @@ import {
   Moon,
   PanelRight,
   Power,
+  Route,
   Sun,
 } from "lucide-react";
 import type { Theme } from "../../hooks/useTheme";
@@ -134,6 +135,15 @@ export function NavRail({
           isExpanded={isExpanded}
         >
           <MapIcon className="w-5 h-5" />
+        </RailButton>
+
+        <RailButton
+          title="Route & Map Manager"
+          active={viewMode === "manager"}
+          onClick={() => onSelectViewMode("manager")}
+          isExpanded={isExpanded}
+        >
+          <Route className="w-5 h-5" />
         </RailButton>
 
         {/* <!--ลำดับของการจัดการปุ่ม --> */}

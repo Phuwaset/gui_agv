@@ -3,7 +3,48 @@ import type {
   NavigationStatus,
   BaseStatus,
   RobotTelemetry,
+  PathPoint,
+  RosMarker,
 } from "../types/telemetry";
+
+// ท่าไม้ตายที่ 1: Path Simplification กรองจุดซ้ำในแนวเส้นตรงทิ้ง
+function simplifyPath(poses: any[], tolerance = 0.20): PathPoint[] {
+  if (!poses || poses.length === 0) return [];
+  if (poses.length <= 2) {
+    return poses
+      .map((p) => {
+        const pos = p.pose?.position || p.position;
+        return pos ? { x: Number(pos.x.toFixed(2)), y: Number(pos.y.toFixed(2)) } : null;
+      })
+      .filter((pt): pt is PathPoint => pt !== null);
+  }
+
+  const result: PathPoint[] = [];
+  const firstPos = poses[0].pose?.position || poses[0].position;
+  if (!firstPos) return [];
+
+  let lastPos = { x: Number(firstPos.x.toFixed(2)), y: Number(firstPos.y.toFixed(2)) };
+  result.push(lastPos);
+
+  for (let i = 1; i < poses.length - 1; i++) {
+    const p = poses[i].pose?.position || poses[i].position;
+    if (!p) continue;
+    const curPos = { x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)) };
+    const dist = Math.hypot(curPos.x - lastPos.x, curPos.y - lastPos.y);
+
+    if (dist >= tolerance) {
+      result.push(curPos);
+      lastPos = curPos;
+    }
+  }
+
+  const endP = poses[poses.length - 1].pose?.position || poses[poses.length - 1].position;
+  if (endP) {
+    result.push({ x: Number(endP.x.toFixed(2)), y: Number(endP.y.toFixed(2)) });
+  }
+
+  return result;
+}
 
 export class RosBridgeService {
   private ws: WebSocket | null = null;
@@ -22,6 +63,9 @@ export class RosBridgeService {
     navigation: null,
     base: null,
     pose: null,
+    plannedPath: [],
+    stationMarkers: [],
+    waypointMarkers: [],
   };
 
   constructor() {
@@ -53,7 +97,11 @@ export class RosBridgeService {
         // 3. ขอฟังพิกัดตัวรถบนแผนที่ (จาก amv_pose_publish หรือ tf)
         this.subscribe("/amv_current_pose", "geometry_msgs/Pose2D");
         this.subscribe("/amv_pose_tf", "geometry_msgs/Pose");
+
+        // 4. ฟังเส้นทางเดินรถและจุด Marker ทางอุตสาหกรรม
         this.subscribe("/planned_path", "nav_msgs/Path");
+        this.subscribe("/station_labels", "visualization_msgs/MarkerArray");
+        this.subscribe("/waypoint_markers", "visualization_msgs/MarkerArray");
       };
 
       this.ws.onmessage = (event) => {
@@ -150,7 +198,52 @@ export class RosBridgeService {
           };
         }
       }
+    } else if (topic === "/planned_path") {
+      this.telemetry.plannedPath = simplifyPath(msg.poses || []);
+      console.log(`[INFO] [ROS Bridge] /planned_path updated: ${this.telemetry.plannedPath.length} points (simplified)`);
+    } else if (topic === "/station_labels") {
+      this.telemetry.stationMarkers = (msg.markers || []) as RosMarker[];
+      console.log(`[INFO] [ROS Bridge] /station_labels updated: ${this.telemetry.stationMarkers.length} markers`);
+    } else if (topic === "/waypoint_markers") {
+      this.telemetry.waypointMarkers = (msg.markers || []) as RosMarker[];
+      console.log(`[INFO] [ROS Bridge] /waypoint_markers updated: ${this.telemetry.waypointMarkers.length} markers`);
     }
+  }
+
+  public publish(topic: string, type: string, msg: Record<string, any> = {}) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const pubMsg = {
+        op: "publish",
+        topic,
+        type,
+        msg,
+      };
+      this.ws.send(JSON.stringify(pubMsg));
+      console.log(`[INFO] [ROS Bridge] Published to ${topic}:`, msg);
+    } else {
+      console.warn(`[WARN] [ROS Bridge] Cannot publish to ${topic} (WebSocket not open)`);
+    }
+  }
+
+  public async cancelNavigation(): Promise<any> {
+    console.log("[INFO] [ROS Bridge] Aborting navigation: publishing to /move_base/cancel and stopping motors...");
+    // 1. ยกเลิก Actionlib Goal ใน move_base ทันที (actionlib_msgs/GoalID {})
+    this.publish("/move_base/cancel", "actionlib_msgs/GoalID", {});
+
+    // 2. ส่งความเร็วศูนย์ลง /nav_vel เพื่อให้มอเตอร์หยุดหมุนทันที
+    this.publish("/nav_vel", "geometry_msgs/Twist", {
+      linear: { x: 0, y: 0, z: 0 },
+      angular: { x: 0, y: 0, z: 0 },
+    });
+
+    // 3. สั่ง Cancle Queue ใน station_service เพื่อล้างตัวแปรคิว
+    try {
+      await this.callService("/cmd_req", { command: "Cancle Queue" });
+    } catch (err) {
+      console.warn("[WARN] [ROS Bridge] Could not call /cmd_req 'Cancle Queue':", err);
+    }
+
+    return { status: "Navigation canceled successfully" };
   }
 
   public callService(

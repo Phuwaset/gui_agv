@@ -46,5 +46,8 @@ export function useTelemetry(pollIntervalMs: number = 250) {
     nav: telemetry?.navigation ?? null,
     base: telemetry?.base ?? null,
     pose: telemetry?.pose ?? null,
+    plannedPath: telemetry?.plannedPath ?? [],
+    stationMarkers: telemetry?.stationMarkers ?? [],
+    waypointMarkers: telemetry?.waypointMarkers ?? [],
   };
 }

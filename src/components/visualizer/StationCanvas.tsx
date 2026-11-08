@@ -13,12 +13,16 @@ import {
   MapPin,
   Eye,
   Radio,
+  Route,
 } from "lucide-react";
 import type {
   NavigationStatus,
   BaseStatus,
   RobotPose,
   StationData,
+  PathPoint,
+  RosMarker,
+  TrackEdge,
 } from "../../types/telemetry";
 import { MAP_CONFIG } from "../../config";
 
@@ -41,6 +45,14 @@ interface StationCanvasProps {
   viewMode?: string;
   onSelectViewMode?: (mode: string) => void;
   lastUpdated?: string;
+  plannedPath?: PathPoint[];
+  stationMarkers?: RosMarker[];
+  waypointMarkers?: RosMarker[];
+  // Props ใหม่สำหรับ Route & Map Manager:
+  waypoints?: StationData[];
+  tracks?: TrackEdge[];
+  highlightNodeName?: string | null;
+  onSelectNode?: (name: string) => void;
 }
 
 export function StationCanvas({
@@ -54,12 +66,20 @@ export function StationCanvas({
   viewMode = "overview",
   onSelectViewMode,
   lastUpdated,
+  plannedPath = [],
+  stationMarkers = [],
+  waypointMarkers = [],
+  waypoints = [],
+  tracks = [],
+  highlightNodeName = null,
+  onSelectNode,
 }: StationCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mapImageRef = useRef<HTMLImageElement | null>(null);
 
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
+  const [showTracks, setShowTracks] = useState<boolean>(false); // ปิด Track Layer เริ่มต้นตามคำสั่งผู้ใช้
   const [mapMeta, setMapMeta] = useState({
     originX: MAP_CONFIG.ORIGIN_X,
     originY: MAP_CONFIG.ORIGIN_Y,
@@ -88,7 +108,7 @@ export function StationCanvas({
 
   const isObstacle = nav?.obstacle === "Detecting";
   const isEmergency = base?.emergency_button ?? false;
-  const currentStation = nav?.current_station || "Material Room";
+  const currentStation = nav?.current_station || "";
 
   // 1. ดึงภาพแผนที่โรงงานจาก ROS Service /get_map_image ผ่าน Bun API
   useEffect(() => {
@@ -280,10 +300,29 @@ export function StationCanvas({
       ctx.fillStyle = "#22c55e";
       ctx.fillText("+Y", origin.x + 6, 20);
 
-      // สัญลักษณ์ Origin (0,0)
+      // สัญลักษณ์ Map Origin (0,0) จุดกำเนิดพิกัดแผนที่ ROS
+      ctx.beginPath();
+      ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
       ctx.fillStyle = "#f97316";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const originLabel = "Map Origin (0,0)";
       ctx.font = "bold 10px monospace";
-      ctx.fillText("(0,0)", origin.x + 6, origin.y + 14);
+      const oWidth = ctx.measureText(originLabel).width;
+      ctx.fillStyle = "rgba(15, 27, 92, 0.9)";
+      ctx.beginPath();
+      ctx.roundRect(origin.x + 8, origin.y + 3, oWidth + 10, 18, 4);
+      ctx.fill();
+      ctx.strokeStyle = "#f97316";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "left";
+      ctx.fillText(originLabel, origin.x + 13, origin.y + 16);
       ctx.restore();
 
       // 5.4 Layer แผนที่ Occupancy Grid โรงงาน Mektec
@@ -332,23 +371,118 @@ export function StationCanvas({
         ctx.restore();
       }
       
-      // 5.5 Layer เส้นทางเดินรถจำลอง (Virtual Tracks ระหว่างสถานี)
-      if (stations.length > 1) {
+      // 5.5 Layer รางเดินรถจริง (Track Layer ปิดอยู่เป็นค่าเริ่มต้นตามคำสั่งผู้ใช้)
+      if (showTracks) {
+        if (tracks && tracks.length > 0) {
+          ctx.save();
+          ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.45)" : "rgba(2, 132, 199, 0.55)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 4]);
+
+          const nodeMap = new Map<string, { x: number; y: number }>();
+          stations.forEach((s) => nodeMap.set(s.name.toLowerCase(), { x: s.x, y: s.y }));
+          waypoints.forEach((w) => nodeMap.set(w.name.toLowerCase(), { x: w.x, y: w.y }));
+
+          tracks.forEach((tr) => {
+            const p1Data = nodeMap.get(tr.from_node.toLowerCase());
+            const p2Data = nodeMap.get(tr.to_node.toLowerCase());
+            if (p1Data && p2Data) {
+              const p1 = rosToCanvas(p1Data.x, p1Data.y, width, height);
+              const p2 = rosToCanvas(p2Data.x, p2Data.y, width, height);
+              ctx.beginPath();
+              ctx.moveTo(p1.x, p1.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.stroke();
+            }
+          });
+          ctx.restore();
+        } else if (stations.length > 1) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(249, 115, 22, 0.25)";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          stations.forEach((st, idx) => {
+            const pt = rosToCanvas(st.x, st.y, width, height);
+            if (idx === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+          });
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // 5.5b Layer เส้นทางนำทางสดจริง (/planned_path จาก MoveBase / PlannedPathPlanner)
+      if (plannedPath && plannedPath.length > 1) {
         ctx.save();
-        ctx.strokeStyle = "rgba(249, 115, 22, 0.35)";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
+        ctx.strokeStyle = "#00f0ff";
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
+        ctx.shadowBlur = 10;
         ctx.beginPath();
-        stations.forEach((st, idx) => {
-          const pt = rosToCanvas(st.x, st.y, width, height);
-          if (idx === 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
+        plannedPath.forEach((pt, idx) => {
+          const canvasPt = rosToCanvas(pt.x, pt.y, width, height);
+          if (idx === 0) ctx.moveTo(canvasPt.x, canvasPt.y);
+          else ctx.lineTo(canvasPt.x, canvasPt.y);
         });
         ctx.stroke();
+
+        // จุดหัวทางมุ่งหน้า (Destination Lead Dot)
+        const lastPt = plannedPath[plannedPath.length - 1];
+        const destCanvas = rosToCanvas(lastPt.x, lastPt.y, width, height);
+        ctx.beginPath();
+        ctx.arc(destCanvas.x, destCanvas.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = "#00f0ff";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
         ctx.restore();
       }
 
-      // 5.6 Layer หมุดสถานี (Station Markers)
+      // 5.5c Layer จุดนำร่อง Waypoint (/waypoint_markers หรือ waypoints จาก CSV)
+      // เปลี่ยนเป็นจุดสีน้ำเงิน Industrial Blue คมชัดตามคำสั่งผู้ใช้
+      const activeWaypoints: Array<{ name: string; x: number; y: number }> =
+        waypointMarkers.length > 0
+          ? waypointMarkers.map((mk) => ({
+              name: mk.text || "",
+              x: mk.pose?.position.x ?? 0,
+              y: mk.pose?.position.y ?? 0,
+            }))
+          : waypoints.map((w) => ({ name: w.name, x: w.x, y: w.y }));
+
+      activeWaypoints.forEach((wp) => {
+        const pt = rosToCanvas(wp.x, wp.y, width, height);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#2563eb"; // สีน้ำเงินสด (Industrial Royal Blue)
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = "rgba(37, 99, 235, 0.6)";
+        ctx.shadowBlur = 6;
+        ctx.stroke();
+
+        // แสดงชื่อ Waypoint แบบสีเข้ม คมชัด พร้อมขอบ Halo สีขาวกันกลืนกับพื้นโรงงาน
+        if (wp.name) {
+          ctx.font = "bold 9px monospace";
+          ctx.textAlign = "center";
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 2.5;
+          ctx.lineJoin = "round";
+          ctx.strokeText(wp.name, pt.x, pt.y - 8);
+          ctx.fillStyle = "#0f172a"; // สีเข้มเข้มคมชัด (Dark Slate)
+          ctx.fillText(wp.name, pt.x, pt.y - 8);
+        }
+        ctx.restore();
+      });
+
+      // 5.6 Layer หมุดสถานีและป้ายชื่อ (/station_labels + CSV stations)
       stations.forEach((st) => {
         const pt = rosToCanvas(st.x, st.y, width, height);
         const isSelected = selectedStation?.name === st.name;
@@ -356,29 +490,40 @@ export function StationCanvas({
 
         ctx.save();
 
-        // หมุดจุดสถานีสีส้มตาม Reference
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, isSelected ? 8 : 5, 0, Math.PI * 2);
-        ctx.fillStyle = isDocked || isSelected ? "#f97316" : "#fb923c";
-        ctx.fill();
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = isSelected ? 2 : 1;
-        ctx.stroke();
+        // 1. คำนวณมุมหันหน้า (Yaw) อ้างอิงจาก CSV station_list โดยตรง (Quaternion qz/qw หรือ theta)
+        const yawRad =
+          st.qw !== undefined && st.qz !== undefined && (st.qw !== 0 || st.qz !== 0)
+            ? Math.atan2(
+                2 * (st.qw * st.qz + (st.qx || 0) * (st.qy || 0)),
+                1 - 2 * ((st.qy || 0) ** 2 + st.qz ** 2),
+              )
+            : Math.abs(st.theta) > Math.PI
+            ? (st.theta * Math.PI) / 180
+            : st.theta;
 
-        // ลูกศรทิศทางหันหน้าของสถานี
-        const rad = (st.theta * Math.PI) / 180;
-        const arrowLen = 14;
-        const arrowEndX = pt.x + Math.cos(rad) * arrowLen;
-        const arrowEndY = pt.y - Math.sin(rad) * arrowLen;
+        // 2. ขีดบอกทิศทางการเข้าจอดสถานี (Directional Pointer Notch จาก CSV)
+        const tickLen = isSelected ? 18 : 14;
+        const tickEndX = pt.x + Math.cos(yawRad) * tickLen;
+        const tickEndY = pt.y - Math.sin(yawRad) * tickLen;
 
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
-        ctx.lineTo(arrowEndX, arrowEndY);
-        ctx.strokeStyle = "#f97316";
-        ctx.lineWidth = 2;
+        ctx.lineTo(tickEndX, tickEndY);
+        ctx.strokeStyle = isSelected ? "#f97316" : "#fb923c";
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.lineCap = "round";
         ctx.stroke();
 
-        // ป้ายชื่อสถานี
+        // 3. หมุดจุดสถานีสีส้ม (Station Node Center)
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, isSelected ? 7 : 5, 0, Math.PI * 2);
+        ctx.fillStyle = isDocked || isSelected ? "#f97316" : "#ea580c";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = isSelected ? 2 : 1.5;
+        ctx.stroke();
+
+        // 4. ป้ายชื่อสถานีสไตล์ SYNAOS Badge
         ctx.font = isSelected ? "bold 11px sans-serif" : "9px sans-serif";
         ctx.fillStyle = isSelected ? "#f97316" : "#cbd5e1";
         ctx.textAlign = "center";
@@ -386,6 +531,69 @@ export function StationCanvas({
 
         ctx.restore();
       });
+
+      // ป้ายสถานีสดจาก ROS /station_labels (ถ้ามีส่งมาเพิ่มเติม)
+      if (stationMarkers && stationMarkers.length > 0) {
+        stationMarkers.forEach((mk) => {
+          if (!mk.text || !mk.pose?.position) return;
+          const pt = rosToCanvas(mk.pose.position.x, mk.pose.position.y, width, height);
+          ctx.save();
+          ctx.font = "bold 9px sans-serif";
+          const tw = ctx.measureText(mk.text).width;
+          ctx.fillStyle = "rgba(15, 27, 92, 0.75)";
+          ctx.beginPath();
+          ctx.roundRect(pt.x - (tw + 10) / 2, pt.y + 10, tw + 10, 16, 3);
+          ctx.fill();
+          ctx.strokeStyle = "#f97316";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.fillText(mk.text, pt.x, pt.y + 22);
+          ctx.restore();
+        });
+      }
+
+      // 5.6b Layer วงแหวนไฮไลท์สีทองกระพริบ (Golden Highlight Pulse) รอบโหนดที่เลือกจากตาราง
+      if (highlightNodeName) {
+        const targetSt = stations.find((s) => s.name.toLowerCase() === highlightNodeName.toLowerCase());
+        const targetWp =
+          activeWaypoints.find((w) => w.name.toLowerCase() === highlightNodeName.toLowerCase()) ||
+          waypoints.find((w) => w.name.toLowerCase() === highlightNodeName.toLowerCase());
+        const targetPos = targetSt || (targetWp ? { ...targetWp, name: targetWp.name } : null);
+        if (targetPos) {
+          const pt = rosToCanvas(targetPos.x, targetPos.y, width, height);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 18, 0, Math.PI * 2);
+          ctx.strokeStyle = "#f59e0b"; // สีทองอำพันสดใส
+          ctx.lineWidth = 3;
+          ctx.shadowColor = "rgba(245, 158, 11, 0.9)";
+          ctx.shadowBlur = 16;
+          ctx.stroke();
+
+          // ขีดกากบาทเล็งเป้า
+          ctx.beginPath();
+          ctx.moveTo(pt.x - 22, pt.y);
+          ctx.lineTo(pt.x + 22, pt.y);
+          ctx.moveTo(pt.x, pt.y - 22);
+          ctx.lineTo(pt.x, pt.y + 22);
+          ctx.strokeStyle = "rgba(245, 158, 11, 0.7)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // ป้ายชื่อเป้าหมายกำกับชัดเจน เพื่อให้ Operator ทราบทันทีว่ากำลังระบุตำแหน่งจุดไหน
+          ctx.font = "bold 11px monospace";
+          ctx.textAlign = "center";
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = 3;
+          ctx.strokeText(`🎯 [${targetPos.name}]`, pt.x, pt.y - 24);
+          ctx.fillStyle = "#f59e0b";
+          ctx.fillText(`🎯 [${targetPos.name}]`, pt.x, pt.y - 24);
+
+          ctx.restore();
+        }
+      }
 
       // 5.7 Layer ตัวรถ AGV (AMV-01 Pose)
       const robotX = pose?.x ?? 67.92;
@@ -472,12 +680,23 @@ export function StationCanvas({
     mapMeta,
     rosToCanvas,
     theme,
+    plannedPath,
+    stationMarkers,
+    waypointMarkers,
+    waypoints,
+    tracks,
+    highlightNodeName,
+    showTracks,
   ]);
+
+  // Click detection for Bi-directional sync
+  const [clickStartPos, setClickStartPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsDragging(true);
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    setClickStartPos({ x: e.clientX, y: e.clientY });
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -488,7 +707,37 @@ export function StationCanvas({
     });
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDragging(false);
+    const dist = Math.hypot(e.clientX - clickStartPos.x, e.clientY - clickStartPos.y);
+    if (dist < 6 && canvasRef.current) {
+      // ตรวจจับการคลิกบนหมุดสถานีหรือ Waypoint เพื่อทำ Bi-directional Sync
+      const rect = canvasRef.current.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      // 1. ตรวจสอบสถานี
+      for (const st of stations) {
+        const pt = rosToCanvas(st.x, st.y, canvasSize.width, canvasSize.height);
+        if (Math.hypot(clickX - pt.x, clickY - pt.y) < 22) {
+          onSelectStation(st);
+          onSelectNode?.(st.name);
+          return;
+        }
+      }
+
+      // 2. ตรวจสอบ Waypoint
+      for (const wp of waypoints) {
+        const pt = rosToCanvas(wp.x, wp.y, canvasSize.width, canvasSize.height);
+        if (Math.hypot(clickX - pt.x, clickY - pt.y) < 18) {
+          onSelectNode?.(wp.name);
+          return;
+        }
+      }
+    }
+  };
+
+  const handleMouseLeave = () => setIsDragging(false);
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
@@ -538,6 +787,20 @@ export function StationCanvas({
 
       {/* 3. Top-Right Floating Controls */}
       <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
+        <button
+          type="button"
+          onClick={() => setShowTracks((prev) => !prev)}
+          title={showTracks ? "ซ่อนเส้นรางเดินรถ" : "แสดงเส้นรางเดินรถ"}
+          className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition shadow-md cursor-pointer ${
+            showTracks
+              ? "bg-sky-600 text-white border-sky-500 shadow-sky-600/30 font-semibold"
+              : "bg-white/90 dark:bg-[#21262d]/90 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#30363d] hover:bg-slate-100 dark:hover:bg-[#30363d]"
+          }`}
+        >
+          <Route className="w-3.5 h-3.5" />
+          <span>{showTracks ? "ซ่อนราง" : "แสดงราง"}</span>
+        </button>
+
         <button
           onClick={toggleFullscreen}
           title="เต็มจอ (Fullscreen)"

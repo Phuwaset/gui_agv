@@ -17,7 +17,7 @@ export const CONFIG = {
   ROBOT_WS_URL: getEnv("ROBOT_WS_URL", "ws://localhost:9090"),
 };
 
-// ข้อมูลพิกัดและสเปกแผนที่โรงงาน Mektec (ส่งมอบจากพี่ ROS)
+// ข้อมูลพิกัดและสเปกแผนที่โรงงาน
 export const MAP_CONFIG = {
   IMAGE_URL: "/api/map/mektec_20260917_remap.png",
   LINUX_PATH:
@@ -30,3 +30,10 @@ export const MAP_CONFIG = {
   REAL_WIDTH_METERS: 115.2, // กว้าง 2304 * 0.05 = 115.2 m
   REAL_HEIGHT_METERS: 70.4, // สูง 1408 * 0.05 = 70.4 m
 };
+
+// ตำแหน่งไฟล์สถานี, Waypoint และรางเดินรถ (Cross-Platform)
+export const STATION_CONFIG = {
+  LINUX_DIR: "/home/minirw/amv_ws/src/amv_service/station",
+  LOCAL_DIR: "./data/station",
+};
+

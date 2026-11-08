@@ -68,6 +68,20 @@ export interface ReadStationResponse {
   station_data: StationData[];
 }
 
+// ข้อมูลเส้นทางเชื่อมโยงระหว่างโหนด (Edges) จาก manual_track.csv
+export interface TrackEdge {
+  from_node: string;
+  to_node: string;
+  mode: string;
+}
+
+// ก้อนข้อมูลรวมสำหรับ Map & Route Manager
+export interface MapLayoutData {
+  stations: StationData[];
+  waypoints: StationData[];
+  tracks: TrackEdge[];
+}
+
 // 4. พิกัดตำแหน่งหุ่นยนต์จาก /amv_current_pose หรือ /amv_pose_tf
 export interface RobotPose {
   x: number;
@@ -75,7 +89,29 @@ export interface RobotPose {
   theta: number; // องศา Yaw (Degrees)
 }
 
-// 5. ก้อน Telemetry รวมที่แคชไว้ใน RAM ของ Bun
+// 5. โครงสร้าง Marker จาก visualization_msgs/Marker
+export interface RosMarker {
+  id: number;
+  ns?: string;
+  type: number; // 0 = ARROW, 1 = CUBE, 2 = SPHERE, 3 = CYLINDER, 4 = LINE_STRIP, 9 = TEXT_VIEW_FACING
+  action?: number;
+  pose: {
+    position: { x: number; y: number; z: number };
+    orientation?: { x: number; y: number; z: number; w: number };
+  };
+  scale?: { x: number; y: number; z: number };
+  color?: { r: number; g: number; b: number; a: number };
+  text?: string;
+  points?: Array<{ x: number; y: number; z: number }>;
+}
+
+// 6. จุดพิกัดเส้นทาง 2D จาก nav_msgs/Path
+export interface PathPoint {
+  x: number;
+  y: number;
+}
+
+// 7. ก้อน Telemetry รวมที่แคชไว้ใน RAM ของ Bun
 export interface RobotTelemetry {
   connected: boolean;
   robotIp: string;
@@ -83,4 +119,7 @@ export interface RobotTelemetry {
   navigation: NavigationStatus | null;
   base: BaseStatus | null;
   pose: RobotPose | null;
+  plannedPath?: PathPoint[];
+  stationMarkers?: RosMarker[];
+  waypointMarkers?: RosMarker[];
 }
