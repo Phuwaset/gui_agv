@@ -1,0 +1,163 @@
+sequenceDiagram
+    autonumber
+
+    %% ==============================================================================
+    %% PARTICIPANTS DEFINITION (Clean & Theme-Adaptive Transparent)
+    %% ==============================================================================
+    %% Presentation Layer (React 19 UI)
+    actor Operator as Operator / Fleet Manager
+    participant UI as Inspector & Canvas UI
+    participant Watchdog as Heartbeat Watchdog (3s)
+    participant RouteMgr as Map & Route Manager Pane
+
+    %% Gateway Layer (Pure Native Bun)
+    participant API as Bun REST API (:3000)
+    participant MapMgr as MapManager (Atomic .bak)
+    participant Bridge as RosBridge WebSocket Client
+
+    %% Robot System (ROS Noetic @ AMV2)
+    participant ROSWS as rosbridge_server (:9090)
+    participant StationSrv as station_service.py
+    participant MoveBase as move_base (Action Server)
+    participant PinActuator as Linear Pin & Base Hardware
+
+    %% ==============================================================================
+    %% SCENARIO 1: LIVE TELEMETRY & 3-SECOND HEARTBEAT SAFETY WATCHDOG
+    %% ==============================================================================
+    note over Operator, PinActuator: 1. Live Telemetry & Safety Watchdog Loop
+    Bridge->>ROSWS: 1. Subscribe (/amv_pose_tf, /amv_navigation_status, /amv_base_status, /planned_path)
+    loop Continuous Stream (10Hz - 20Hz)
+        ROSWS-->>Bridge: WebSocket Push: x, y, yaw, nav_status, battery, pin_status, obstacle
+        Bridge->>Bridge: Cache latest telemetry into RAM memory & stamp lastUpdated = Date.now()
+    end
+
+    loop UI Telemetry Polling (4Hz - every 250ms)
+        UI->>API: GET /api/robot/telemetry
+        API-->>UI: In-RAM JSON Response (< 1ms latency)
+        UI->>UI: Update Canvas AGV position, heading cone & Inspector status cards
+        UI->>Watchdog: Validate (Date.now() - lastUpdated < 3000ms)
+        alt Heartbeat Lost (> 3000ms or WiFi Drop)
+            Watchdog-->>UI: Trigger Fail-Safe: isHealthy = false (RED ALERT)
+            UI->>UI: Lock all dispatch buttons (Prevent phantom commands)
+        else Heartbeat Healthy
+            Watchdog-->>UI: isHealthy = true (GREEN)
+        end
+    end
+
+    %% ==============================================================================
+    %% SCENARIO 2: 5-STATION SEQUENTIAL QUEUE MISSION (GoStationQueue.srv)
+    %% ==============================================================================
+    note over Operator, PinActuator: 2. Five-Station Queue Mission (GoStationQueue.srv & Next Stepper)
+    Operator->>UI: 1. Select Stations for Q1, Q2, Q3 (Mat_AI ➔ Line_AS_2-3_AI ➔ Line_AS_6_AI)
+    Operator->>UI: 2. Click [Start Queue]
+    UI->>API: POST /api/robot/go-station-queue { queue: ["Mat_AI", "Line_AS_2-3_AI", "Line_AS_6_AI"] }
+    API->>Bridge: callService("/go_station_queue", { q1: "Mat_AI", q2: "Line_AS_2-3_AI", q3: "Line_AS_6_AI", q4: "None", q5: "None" })
+    Bridge->>ROSWS: op: "call_service", service: "/go_station_queue"
+    ROSWS->>StationSrv: go_station_queue_service(req)
+    StationSrv->>StationSrv: Store q2="Line_AS_2-3_AI", q3="Line_AS_6_AI" in memory, target = q1
+    StationSrv->>MoveBase: send_goal(Mat_AI coordinates)
+    MoveBase-->>StationSrv: Goal accepted (movebase_status = 1: "Got path planning")
+    StationSrv-->>ROSWS: Return status: "GoStation with Queue Mat_AI"
+    ROSWS-->>Bridge: WebSocket Service Response
+    Bridge-->>API: Resolve Service Promise
+    API-->>UI: 200 OK: Queue Started
+    UI->>UI: Display orange banner: "ปิดการสั่งการ: หุ่นยนต์กำลังวิ่งนำทางอยู่"
+
+    MoveBase->>MoveBase: AMV navigates to Mat_AI...
+    MoveBase-->>StationSrv: Arrived Mat_AI (movebase_status = 3: "Arrived station")
+    StationSrv-->>ROSWS: Publish /amv_navigation_status: "Arrived station"
+    ROSWS-->>Bridge: Push Telemetry packet to RAM cache
+    Bridge-->>UI: Poll Telemetry: nav_status = "Arrived station"
+    UI->>UI: AMV reaches Q1 and stops. UI enables [Next] button!
+
+    note over Operator, UI: Work at Q1 done. Operator commands Next station:
+    Operator->>UI: 3. Click [Next]
+    UI->>API: POST /api/robot/cmd-req { command: "Next" }
+    API->>Bridge: callService("/cmd_req", { command: "Next" })
+    Bridge->>ROSWS: op: "call_service", service: "/cmd_req"
+    ROSWS->>StationSrv: cmd_req_service(command="Next")
+    StationSrv->>StationSrv: Shift Queue: q1=q2 ("Line_AS_2-3_AI"), q2=q3 ("Line_AS_6_AI"), q3="None"
+    StationSrv->>MoveBase: send_goal(Line_AS_2-3_AI)
+    StationSrv-->>ROSWS: Return: "Run Queue Complete"
+    ROSWS-->>Bridge: WebSocket Command Response
+    Bridge-->>API: Resolve Command Promise
+    API-->>UI: 200 OK: Next station running
+    UI->>UI: Advance frontend queue badges: Q1 complete, now moving to Q2!
+
+    %% ==============================================================================
+    %% SCENARIO 3: PICK & PLACE MISSION (GoStationList.srv)
+    %% ==============================================================================
+    note over Operator, PinActuator: 3. Pick & Place Mission with Auto Pin & Clear Cart
+    Operator->>UI: 1. Select Send: "Line_AS_2-3_AI" (Pin Down) & Receive: "Mat_AI" (Pin Up)
+    Operator->>UI: 2. Click [Start Pick & Place]
+    UI->>API: POST /api/robot/go-station-list { send_station: "Line_AS_2-3_AI", receive_station: "Mat_AI" }
+    API->>Bridge: callService("/go_station_list", { send_station: "Line_AS_2-3_AI", receive_station: "Mat_AI" })
+    Bridge->>ROSWS: op: "call_service", service: "/go_station_list"
+    ROSWS->>StationSrv: go_station_list_service(req)
+    StationSrv->>StationSrv: Set pin_command = 'Down' (Prepare drop)
+    StationSrv->>MoveBase: send_goal(Line_AS_2-3_AI)
+    MoveBase-->>StationSrv: Navigation active (status = 1)
+    MoveBase-->>StationSrv: Arrive at Send Station (status = 3: "Arrived station")
+
+    StationSrv->>PinActuator: Publish /pin_command: "Down"
+    PinActuator->>PinActuator: Lower linear pin mechanism to release cart
+    PinActuator-->>StationSrv: Confirm pin_status == 'Down'
+    StationSrv->>MoveBase: Execute moving_forward(): Drive forward 0.65m to clear cart
+    MoveBase-->>StationSrv: Forward complete (forward_complete = True)
+    
+    note over StationSrv, MoveBase: Auto-Transition to Receive Station (No human intervention!)
+    StationSrv->>MoveBase: Automatically send_goal(Receive Station: Mat_AI)
+    MoveBase-->>StationSrv: Navigation active to Mat_AI
+    MoveBase-->>StationSrv: Arrive at Mat_AI (status = 3)
+    StationSrv->>PinActuator: Publish /pin_command: "Up" (Lock new cart)
+    StationSrv-->>UI: Pick & Place Mission Fully Completed!
+
+    %% ==============================================================================
+    %% SCENARIO 4: EMERGENCY FORCE UNLOCK & NAVIGATION ABORT
+    %% ==============================================================================
+    note over Operator, MoveBase: 4. Emergency Force Unlock & MoveBase Abort
+    note over UI: Robot stuck oscillating or operator needs immediate abort:
+    Operator->>UI: 1. Click [ปลดล็อค / หยุดวิ่ง] on the orange interlock banner
+    UI->>API: POST /api/robot/cancel-navigation
+    API->>Bridge: cancelNavigation()
+    par Immediate Hardware Stop
+        Bridge->>ROSWS: Publish /move_base/cancel (actionlib_msgs/GoalID: {})
+        ROSWS->>MoveBase: Abort and cancel all active goals immediately!
+        MoveBase-->>MoveBase: Transition status to PREEMPTED (2)
+    and Zero Velocity Pulse
+        Bridge->>ROSWS: Publish /nav_vel (geometry_msgs/Twist: linear=0, angular=0)
+        ROSWS->>PinActuator: Stop drive motors instantly!
+    and Clear ROS Queue
+        Bridge->>ROSWS: callService("/cmd_req", { command: "Cancle Queue" })
+        ROSWS->>StationSrv: Purge target_station_q1..q5 = 'None'
+    end
+    MoveBase-->>StationSrv: Status changed away from "Got path planning"
+    StationSrv-->>ROSWS: Publish updated /amv_navigation_status
+    ROSWS-->>Bridge: Forward to Gateway RAM cache
+    Bridge-->>UI: Poll Telemetry: nav_status != "Got path planning"
+    UI->>UI: Safety interlock released! Buttons re-enabled for new missions.
+
+    %% ==============================================================================
+    %% SCENARIO 5: MAP & ROUTE EDITING WITH DANGLING EDGE SAFETY (HTTP 409)
+    %% ==============================================================================
+    note over Operator, MapMgr: 5. Map & Route Management & Dangling Edge Prevention
+    Operator->>RouteMgr: 1. Attempt to delete Station or Waypoint (e.g. "Line_3-4_JC")
+    RouteMgr->>API: DELETE /api/node/Line_3-4_JC (force=false)
+    API->>MapMgr: deleteNode("Line_3-4_JC", force=false)
+    MapMgr->>MapMgr: Scan manual_track.csv for connected route edges...
+    alt Dangling Edges Detected (Found 2 connecting tracks)
+        MapMgr-->>API: Conflict: 2 edges connected (wp13 to Line_3-4_JC and Line_3-4_JC to wp14)
+        API-->>RouteMgr: HTTP 409 Conflict: DanglingEdgeDetected
+        RouteMgr->>RouteMgr: Pop up DanglingEdgeModal to warn Operator!
+        Operator->>RouteMgr: 2. Operator reviews edges and clicks Confirm Delete
+        RouteMgr->>API: DELETE /api/node/Line_3-4_JC?force=true
+        API->>MapMgr: deleteNode("Line_3-4_JC", force=true)
+    end
+
+    MapMgr->>MapMgr: 1. Create atomic backup files: station_list.csv.bak & manual_track.csv.bak
+    MapMgr->>MapMgr: 2. Atomically write updated CSVs (node removed + connecting tracks pruned)
+    MapMgr->>Bridge: triggerRosReload: calls /amv/reload_markers
+    Bridge->>ROSWS: Service /amv/reload_markers
+    ROSWS->>StationSrv: Reload CSV into RAM & republish RViz markers (/station_labels, /waypoint_markers)
+    API-->>RouteMgr: 200 OK: Node & Edges deleted cleanly!
+    RouteMgr-->>UI: Map and canvas visualizer updated in real-time!

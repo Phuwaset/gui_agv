@@ -28,11 +28,5 @@ Line_AS_11_AI,wp12,bidirectional
 wp12,wp13,bidirectional
 wp13,Line_1-2_JC,bidirectional
 Line_1-2_JC,wp13,bidirectional
-wp13,Line_3-4_JC,bidirectional
-Line_3-4_JC,wp14,bidirectional
-wp14,wp15,bidirectional
-wp15,wp16,bidirectional
-wp16,Mat_JC,bidirectional
-Mat_JC,wp16,bidirectional
-wp16,wp17,bidirectional
-wp17,Line_5-6_JC,bidirectional
+wp13,wp18,bidirectional
+wp18,Line_3-4_JC,bidirectional

@@ -141,11 +141,59 @@ const server = serve({
     "/api/robot/go-station": async (req) => {
       try {
         const body = (await req.json()) as { target_station?: string; station_name?: string };
-        const station = body.target_station || body.station_name || "";
-        const res = await rosBridge.callService("/go_station", {
-          target_station: station,
-        });
-        return Response.json(res);
+        const targetName = (body.target_station || body.station_name || "").trim();
+        if (!targetName) return Response.json({ error: "Missing target station name" }, { status: 400 });
+
+        // 1. ลองเรียก /go_station ของ ROS ดูก่อน
+        let rosResult: any = null;
+        try {
+          const res = await rosBridge.callService("/go_station", {
+            target_station: targetName,
+          });
+          rosResult = res;
+          // ถ้า ROS ยอมรับและมีเป้าหมายใน station_list.csv
+          if (res && res.status && !res.status.startsWith("Error no target station")) {
+            return Response.json(res);
+          }
+        } catch (rosErr) {
+          // ROS service offline หรือ error
+        }
+
+        // 2. ถ้า ROS ไม่พบโหนด (เช่น เป็น Waypoint หรือโหนดที่เพิ่งเพิ่มใหม่)
+        // ให้ค้นหาพิกัดจาก mapLayout (ทั้ง stations และ waypoints) แล้วส่งตรงเข้า move_base
+        const layout = await mapManager.getMapLayout();
+        const allNodes = [...layout.stations, ...layout.waypoints];
+        const targetNode = allNodes.find((n) => n.name.toLowerCase() === targetName.toLowerCase());
+
+        if (targetNode) {
+          const goalMsg = {
+            header: {
+              frame_id: "map",
+              stamp: { secs: 0, nsecs: 0 },
+            },
+            pose: {
+              position: { x: targetNode.x, y: targetNode.y, z: targetNode.z || 0.0 },
+              orientation: {
+                x: targetNode.qx || 0.0,
+                y: targetNode.qy || 0.0,
+                z: targetNode.qz || 0.0,
+                w: targetNode.qw ?? 1.0,
+              },
+            },
+          };
+          rosBridge.publish("/move_base_simple/goal", "geometry_msgs/PoseStamped", goalMsg);
+          rosBridge.publish("/amv/command/goto_station", "std_msgs/String", { data: targetNode.name });
+          return Response.json({
+            status: `Going to node --> ${targetNode.name} (${targetNode.x.toFixed(2)}, ${targetNode.y.toFixed(2)})`,
+            node: targetNode.name,
+            direct_nav: true,
+          });
+        }
+
+        return Response.json(
+          rosResult || { error: `ไม่พบโหนด [${targetName}] ในระบบผังสถานีและ Waypoints` },
+          { status: 404 },
+        );
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500 });
       }

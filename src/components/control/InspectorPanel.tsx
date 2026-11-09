@@ -29,6 +29,7 @@ interface InspectorPanelProps {
   pose: RobotPose | null;
   lastUpdated?: string;
   stations: StationData[];
+  waypoints?: StationData[];
   selectedStation: StationData | null;
   onSelectStation: (station: StationData) => void;
   onGoStation: (target: string) => Promise<any>;
@@ -115,6 +116,7 @@ export function InspectorPanel({
   pose,
   lastUpdated,
   stations,
+  waypoints = [],
   selectedStation,
   onSelectStation,
   onGoStation,
@@ -418,16 +420,26 @@ export function InspectorPanel({
             )}
 
             {/* ============================================================ */}
-            {/* SUB-MODE 1: SINGLE STATION                                  */}
+            {/* SUB-MODE 1: SINGLE STATION OR WAYPOINT                       */}
             {/* ============================================================ */}
             {orderMode === "single" && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>เลือกสถานีเป้าหมายเดี่ยว</span>
-                  <span className="font-mono font-medium">{stations.length} สถานี</span>
+                  <span>เลือกเป้าหมายเดี่ยว (สถานี / Waypoint)</span>
+                  <div className="flex items-center gap-1 font-mono text-[10px]">
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold">
+                      {stations.length} สถานี
+                    </span>
+                    {waypoints.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold">
+                        {waypoints.length} WP
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                  {/* 1. รายการสถานีหลัก */}
                   {stations.map((st) => {
                     const isSelected = selectedStation?.name === st.name;
                     return (
@@ -437,18 +449,56 @@ export function InspectorPanel({
                         onClick={() => onSelectStation(st)}
                         className={`w-full p-2.5 rounded-lg text-left transition border cursor-pointer flex items-center justify-between ${
                           isSelected
-                            ? "bg-indigo-50 dark:bg-sky-500/10 border-[#0f1b5c] dark:border-sky-400 text-[#0f1b5c] dark:text-sky-300 font-semibold shadow-sm"
+                            ? "bg-amber-50 dark:bg-amber-500/10 border-[#0f1b5c] dark:border-amber-400 text-[#0f1b5c] dark:text-amber-200 font-semibold shadow-sm"
                             : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                         }`}
                       >
                         <div>
-                          <div className="text-xs font-medium">{st.name}</div>
+                          <div className="text-xs font-medium flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                            <span>{st.name}</span>
+                          </div>
                           <div className="text-[10px] text-slate-400 font-mono">
                             Pin: {st.pin} | ({st.x.toFixed(1)}, {st.y.toFixed(1)})
                           </div>
                         </div>
                         {isSelected && (
-                          <span className="text-[10px] uppercase font-bold text-sky-500">
+                          <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">
+                            Selected
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {/* 2. รายการ Waypoints (สำหรับเลือกทดสอบ Go Station ไปยัง Waypoint เช่น wp18) */}
+                  {waypoints.map((wp) => {
+                    const isSelected = selectedStation?.name === wp.name;
+                    return (
+                      <button
+                        key={wp.name}
+                        type="button"
+                        onClick={() => onSelectStation(wp)}
+                        className={`w-full p-2.5 rounded-lg text-left transition border cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? "bg-blue-50 dark:bg-blue-500/10 border-blue-500 text-blue-900 dark:text-blue-200 font-semibold shadow-sm"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <div>
+                          <div className="text-xs font-medium flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                            <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                            <span>{wp.name}</span>
+                            <span className="text-[9px] px-1 rounded bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300">
+                              Waypoint
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            พิกัด: ({wp.x.toFixed(2)}, {wp.y.toFixed(2)})
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400">
                             Selected
                           </span>
                         )}

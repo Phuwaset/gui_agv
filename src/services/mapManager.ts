@@ -62,7 +62,7 @@ function parseCsv(text: string): StationData[] {
   });
 }
 
-// 5. Parser: สำหรับอ่าน manual_track.csv โดยเฉพาะ (กรอง Comment ภาษาไทย "# ช่วง ...")
+// 5. Parser: สำหรับอ่าน manual_track.csv โดยเฉพาะ (กรอง Comment ภาษาไทย "# ช่วง ..." และโหนดไม่สมบูรณ์)
 function parseTrackCsv(text: string): TrackEdge[] {
   const lines = text.split("\n");
   const result: TrackEdge[] = [];
@@ -72,9 +72,12 @@ function parseTrackCsv(text: string): TrackEdge[] {
     if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("from_node")) continue;
     const parts = trimmed.split(",");
     if (parts.length >= 2) {
+      const from = parts[0].trim();
+      const to = parts[1].trim();
+      if (!from || !to || from === "__DELETED__" || to === "__DELETED__") continue;
       result.push({
-        from_node: parts[0].trim(),
-        to_node: parts[1].trim(),
+        from_node: from,
+        to_node: to,
         mode: (parts[2] || "bidirectional").trim(),
       });
     }
@@ -95,10 +98,13 @@ function serializeStationCsv(items: StationData[]): string {
   return header + rows + "\n";
 }
 
-// 7. แปลง Array of TrackEdge กลับเป็น CSV String
+// 7. แปลง Array of TrackEdge กลับเป็น CSV String (กรองโหนดที่ถูกลบหรือว่างทิ้ง)
 function serializeTrackCsv(tracks: TrackEdge[]): string {
   const header = "from_node,to_node,mode\n";
-  const rows = tracks.map((t) => `${t.from_node},${t.to_node},${t.mode || "bidirectional"}`).join("\n");
+  const validTracks = tracks.filter(
+    (t) => t.from_node && t.to_node && t.from_node !== "__DELETED__" && t.to_node !== "__DELETED__",
+  );
+  const rows = validTracks.map((t) => `${t.from_node},${t.to_node},${t.mode || "bidirectional"}`).join("\n");
   return header + rows + "\n";
 }
 

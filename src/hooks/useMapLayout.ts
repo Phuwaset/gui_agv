@@ -27,7 +27,18 @@ export function useMapLayout(isMoving: boolean = false) {
       const res = await fetch("/api/map-layout");
       if (res.ok) {
         const data = (await res.json()) as MapLayoutData;
-        setLayout(data);
+        const cleanedTracks = (data.tracks || []).filter(
+          (t) =>
+            t.from_node &&
+            t.to_node &&
+            t.from_node !== "__DELETED__" &&
+            t.to_node !== "__DELETED__",
+        );
+        setLayout({
+          stations: data.stations || [],
+          waypoints: data.waypoints || [],
+          tracks: cleanedTracks,
+        });
       }
     } catch (err: any) {
       console.error("[ERROR] [useMapLayout] Failed to fetch layout:", err);
@@ -99,6 +110,13 @@ export function useMapLayout(isMoving: boolean = false) {
     setLayout((prev) => ({
       ...prev,
       tracks: [...prev.tracks, newTrack],
+    }));
+  };
+
+  const deleteTrack = (index: number) => {
+    setLayout((prev) => ({
+      ...prev,
+      tracks: prev.tracks.filter((_, i) => i !== index),
     }));
   };
 
@@ -216,6 +234,7 @@ export function useMapLayout(isMoving: boolean = false) {
     addWaypoint,
     updateTrack,
     addTrack,
+    deleteTrack,
     saveAll,
     deleteNode,
     fetchLayout,

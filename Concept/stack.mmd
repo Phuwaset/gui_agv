@@ -1,0 +1,37 @@
+flowchart LR
+    %% Technology Stack Architecture
+    subgraph CLIENT["Client Devices (Factory WiFi)"]
+        BROWSER["Web Browser<br/>(Chrome, Edge, Safari)<br/>Tablets / Laptops / HMI"]
+    end
+
+    subgraph FRONTEND["Frontend Stack (React 19)"]
+        REACT["React 19 Core<br/>• Concurrent Rendering<br/>• Zero Virtual DOM Overhead"]
+        CANVAS_TECH["HTML5 Canvas 2D<br/>• 60 FPS Sub-pixel Engine<br/>• Dynamic Pan/Zoom/Rotation"]
+        THREE_TECH["Three.js (0.187.0)<br/>• WebGL 3D Digital Twin<br/>• GLTF/GLB AGV Model Viewer"]
+        TAILWIND_TECH["Tailwind CSS v4<br/>• Zero-Runtime Engine<br/>• Industrial Dark/Light Modes"]
+        HOOKS_TECH["Custom Architecture Hooks<br/>• useTelemetry (Watchdog)<br/>• useStationManager (Queue)<br/>• useMapLayout (CSV & Dangling)"]
+    end
+
+    subgraph GATEWAY_STACK["Gateway Runtime (Pure Native Bun)"]
+        BUN_CORE["Bun v1.2+ (Zig / C++)<br/>• Ultra-low memory (30-40 MB)<br/>• High Throughput Native HTTP/WS"]
+        BUN_SERVE["Bun.serve() Router<br/>• REST API Gateway<br/>• In-RAM Telemetry Cache (< 1ms)<br/>• Static Asset & Map Server"]
+        BUN_IO["Bun File I/O Engine<br/>• Native Bun.file() & Bun.write()<br/>• Atomic .bak Backup Engine<br/>• UTF-8 Thai Encoding Support"]
+    end
+
+    subgraph ROS_STACK["Robot Stack (Ubuntu 20.04 + ROS Noetic)"]
+        ROSBRIDGE_SRV["rosbridge_server (:9090)<br/>• JSON-RPC WebSocket Protocol"]
+        STATION_PY["AMV Service (station_service.py)<br/>• GoStation & GoStationQueue.srv<br/>• GoStationList.srv (Pick & Place)<br/>• CommandNextStation.srv ('Next')"]
+        MOVEBASE_STACK["move_base Action Server<br/>• NavfnROS (Global)<br/>• TEB / DWA (Local)<br/>• /move_base/cancel"]
+        LOCALIZATION_STACK["AMCL & Sensor Fusion<br/>• Scan Matcher & Odom<br/>• /amv_pose_tf (10Hz)"]
+        HARDWARE_STACK["Motor & Safety Hardware<br/>• Differential Drive Motors<br/>• Linear Pin Up/Down Actuator<br/>• Laser Zone 1 Obstacle Scanner<br/>• Physical Emergency Stop Button"]
+    end
+
+    %% Connectors
+    BROWSER <===>|HTTP / WebSocket (:3000)| BUN_SERVE
+    BUN_SERVE --- REACT
+    REACT --- CANVAS_TECH & THREE_TECH & TAILWIND_TECH & HOOKS_TECH
+    BUN_SERVE --- BUN_CORE & BUN_IO
+    BUN_CORE <===>|WebSocket (:9090)<br/>Localhost Loopback or WiFi| ROSBRIDGE_SRV
+    ROSBRIDGE_SRV <===> STATION_PY
+    STATION_PY <===> MOVEBASE_STACK
+    MOVEBASE_STACK <===> LOCALIZATION_STACK & HARDWARE_STACK

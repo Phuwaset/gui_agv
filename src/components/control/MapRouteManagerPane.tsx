@@ -28,6 +28,7 @@ interface MapRouteManagerPaneProps {
   onAddWaypoint: (wp: StationData) => void;
   onUpdateTrack: (index: number, field: keyof TrackEdge, val: string) => void;
   onAddTrack: (tr: TrackEdge) => void;
+  onDeleteTrack: (index: number) => void;
   onDeleteNode: (name: string) => void;
   onSaveAll: () => Promise<void>;
   onRefresh: () => void;
@@ -50,6 +51,7 @@ export function MapRouteManagerPane({
   onAddWaypoint,
   onUpdateTrack,
   onAddTrack,
+  onDeleteTrack,
   onDeleteNode,
   onSaveAll,
   onRefresh,
@@ -62,18 +64,24 @@ export function MapRouteManagerPane({
   const [newFromNode, setNewFromNode] = useState("");
   const [newToNode, setNewToNode] = useState("");
 
-  // ฟิลเตอร์ข้อมูลตามคำค้นหา
-  const filteredStations = layout.stations.filter((s) =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-  const filteredWaypoints = layout.waypoints.filter((w) =>
-    w.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-  const filteredTracks = layout.tracks.filter(
-    (t) =>
-      t.from_node.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.to_node.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // ฟิลเตอร์ข้อมูลตามคำค้นหา (ผูก originalIndex เพื่อให้แก้ไข/ลบตรงตำแหน่งจริงใน layout เสมอ)
+  const filteredStations = layout.stations
+    .map((station, originalIndex) => ({ station, originalIndex }))
+    .filter(({ station }) =>
+      station.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
+  const filteredWaypoints = layout.waypoints
+    .map((waypoint, originalIndex) => ({ waypoint, originalIndex }))
+    .filter(({ waypoint }) =>
+      waypoint.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
+  const filteredTracks = layout.tracks
+    .map((track, originalIndex) => ({ track, originalIndex }))
+    .filter(
+      ({ track }) =>
+        track.from_node.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        track.to_node.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
 
   const handleAddNewStation = () => {
     const name = newStationName.trim() || `Station_${layout.stations.length + 1}`;
@@ -287,11 +295,11 @@ export function MapRouteManagerPane({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-              {filteredStations.map((st, idx) => {
+              {filteredStations.map(({ station: st, originalIndex }) => {
                 const isSelected = selectedNodeName === st.name;
                 return (
                   <tr
-                    key={st.name || idx}
+                    key={st.name || originalIndex}
                     className={`transition hover:bg-amber-500/5 ${
                       isSelected ? "bg-amber-500/15 dark:bg-amber-500/20 font-semibold" : ""
                     }`}
@@ -301,7 +309,7 @@ export function MapRouteManagerPane({
                         type="text"
                         disabled={isMoving}
                         value={st.name}
-                        onChange={(e) => onUpdateStation(idx, "name", e.target.value)}
+                        onChange={(e) => onUpdateStation(originalIndex, "name", e.target.value)}
                         className="w-24 px-1 py-0.5 bg-transparent border-b border-transparent focus:border-amber-500 focus:outline-none"
                       />
                     </td>
@@ -311,7 +319,7 @@ export function MapRouteManagerPane({
                         step="0.05"
                         disabled={isMoving}
                         value={st.x}
-                        onChange={(e) => onUpdateStation(idx, "x", parseFloat(e.target.value) || 0)}
+                        onChange={(e) => onUpdateStation(originalIndex, "x", parseFloat(e.target.value) || 0)}
                         className="w-14 px-1 py-0.5 text-right bg-transparent border-b border-transparent focus:border-amber-500 focus:outline-none text-slate-600 dark:text-slate-300"
                       />
                     </td>
@@ -321,7 +329,7 @@ export function MapRouteManagerPane({
                         step="0.05"
                         disabled={isMoving}
                         value={st.y}
-                        onChange={(e) => onUpdateStation(idx, "y", parseFloat(e.target.value) || 0)}
+                        onChange={(e) => onUpdateStation(originalIndex, "y", parseFloat(e.target.value) || 0)}
                         className="w-14 px-1 py-0.5 text-right bg-transparent border-b border-transparent focus:border-amber-500 focus:outline-none text-slate-600 dark:text-slate-300"
                       />
                     </td>
@@ -331,7 +339,7 @@ export function MapRouteManagerPane({
                         step="1"
                         disabled={isMoving}
                         value={st.theta ?? 0}
-                        onChange={(e) => onUpdateStation(idx, "theta", parseFloat(e.target.value) || 0)}
+                        onChange={(e) => onUpdateStation(originalIndex, "theta", parseFloat(e.target.value) || 0)}
                         className="w-12 px-1 py-0.5 text-right bg-transparent border-b border-transparent focus:border-amber-500 focus:outline-none text-amber-600 dark:text-amber-400 font-semibold"
                       />
                     </td>
@@ -339,7 +347,7 @@ export function MapRouteManagerPane({
                       <select
                         disabled={isMoving}
                         value={st.pin}
-                        onChange={(e) => onUpdateStation(idx, "pin", e.target.value)}
+                        onChange={(e) => onUpdateStation(originalIndex, "pin", e.target.value)}
                         className="text-[10px] bg-slate-100 dark:bg-slate-800 rounded px-1 py-0.5 border border-slate-200 dark:border-slate-700"
                       >
                         <option value="Up">Up</option>
@@ -386,11 +394,11 @@ export function MapRouteManagerPane({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-              {filteredWaypoints.map((wp, idx) => {
+              {filteredWaypoints.map(({ waypoint: wp, originalIndex }) => {
                 const isSelected = selectedNodeName === wp.name;
                 return (
                   <tr
-                    key={wp.name || idx}
+                    key={wp.name || originalIndex}
                     className={`transition hover:bg-blue-500/5 ${
                       isSelected ? "bg-blue-500/15 dark:bg-blue-500/20 font-semibold" : ""
                     }`}
@@ -400,7 +408,7 @@ export function MapRouteManagerPane({
                         type="text"
                         disabled={isMoving}
                         value={wp.name}
-                        onChange={(e) => onUpdateWaypoint(idx, "name", e.target.value)}
+                        onChange={(e) => onUpdateWaypoint(originalIndex, "name", e.target.value)}
                         className="w-28 px-1 py-0.5 bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none"
                       />
                     </td>
@@ -410,7 +418,7 @@ export function MapRouteManagerPane({
                         step="0.05"
                         disabled={isMoving}
                         value={wp.x}
-                        onChange={(e) => onUpdateWaypoint(idx, "x", parseFloat(e.target.value) || 0)}
+                        onChange={(e) => onUpdateWaypoint(originalIndex, "x", parseFloat(e.target.value) || 0)}
                         className="w-16 px-1 py-0.5 text-right bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none text-slate-600 dark:text-slate-300"
                       />
                     </td>
@@ -420,7 +428,7 @@ export function MapRouteManagerPane({
                         step="0.05"
                         disabled={isMoving}
                         value={wp.y}
-                        onChange={(e) => onUpdateWaypoint(idx, "y", parseFloat(e.target.value) || 0)}
+                        onChange={(e) => onUpdateWaypoint(originalIndex, "y", parseFloat(e.target.value) || 0)}
                         className="w-16 px-1 py-0.5 text-right bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none text-slate-600 dark:text-slate-300"
                       />
                     </td>
@@ -465,14 +473,14 @@ export function MapRouteManagerPane({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-              {filteredTracks.map((tr, idx) => (
-                <tr key={idx} className="transition hover:bg-sky-500/5">
+              {filteredTracks.map(({ track: tr, originalIndex }) => (
+                <tr key={originalIndex} className="transition hover:bg-sky-500/5">
                   <td className="py-1.5 px-3">
                     <input
                       type="text"
                       disabled={isMoving}
                       value={tr.from_node}
-                      onChange={(e) => onUpdateTrack(idx, "from_node", e.target.value)}
+                      onChange={(e) => onUpdateTrack(originalIndex, "from_node", e.target.value)}
                       className="w-24 px-1 py-0.5 bg-transparent border-b border-transparent focus:border-sky-500 focus:outline-none text-slate-700 dark:text-slate-300 font-medium"
                     />
                   </td>
@@ -482,7 +490,7 @@ export function MapRouteManagerPane({
                       type="text"
                       disabled={isMoving}
                       value={tr.to_node}
-                      onChange={(e) => onUpdateTrack(idx, "to_node", e.target.value)}
+                      onChange={(e) => onUpdateTrack(originalIndex, "to_node", e.target.value)}
                       className="w-24 px-1 py-0.5 bg-transparent border-b border-transparent focus:border-sky-500 focus:outline-none text-slate-700 dark:text-slate-300 font-medium"
                     />
                   </td>
@@ -490,7 +498,7 @@ export function MapRouteManagerPane({
                     <select
                       disabled={isMoving}
                       value={tr.mode}
-                      onChange={(e) => onUpdateTrack(idx, "mode", e.target.value)}
+                      onChange={(e) => onUpdateTrack(originalIndex, "mode", e.target.value)}
                       className="text-[10px] bg-slate-100 dark:bg-slate-800 rounded px-1 py-0.5 border border-slate-200 dark:border-slate-700"
                     >
                       <option value="bidirectional">2 ทาง</option>
@@ -501,11 +509,8 @@ export function MapRouteManagerPane({
                     <button
                       type="button"
                       disabled={isMoving}
-                      onClick={() => {
-                        // ลบเฉพาะเส้นทางนี้ออกจากตาราง
-                        const next = layout.tracks.filter((_, i) => i !== idx);
-                        onUpdateTrack(idx, "from_node", "__DELETED__");
-                      }}
+                      onClick={() => onDeleteTrack(originalIndex)}
+                      title="ลบรางเดินรถนี้"
                       className="p-1 hover:text-rose-600 disabled:opacity-30 text-slate-400 transition cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

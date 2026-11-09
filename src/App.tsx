@@ -40,6 +40,7 @@ export function App() {
     stations,
     selectedStation,
     setSelectedStation,
+    refreshStations,
     sendGoStation,
     sendResetPosition,
     stationQueue,
@@ -103,8 +104,12 @@ export function App() {
             onAddWaypoint={mapLayout.addWaypoint}
             onUpdateTrack={mapLayout.updateTrack}
             onAddTrack={mapLayout.addTrack}
+            onDeleteTrack={mapLayout.deleteTrack}
             onDeleteNode={(name) => mapLayout.deleteNode(name, false)}
-            onSaveAll={mapLayout.saveAll}
+            onSaveAll={async () => {
+              await mapLayout.saveAll();
+              await refreshStations();
+            }}
             onRefresh={mapLayout.fetchLayout}
             isSaving={mapLayout.isSaving}
             isMoving={isRobotMoving}
@@ -159,6 +164,7 @@ export function App() {
           pose={pose}
           lastUpdated={telemetry?.lastUpdated}
           stations={activeStations}
+          waypoints={mapLayout.layout.waypoints}
           selectedStation={selectedStation}
           onSelectStation={setSelectedStation}
           onGoStation={sendGoStation}

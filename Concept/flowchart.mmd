@@ -1,80 +1,139 @@
-sequenceDiagram
-    autonumber
+%% ==============================================================================
+%% JOB260803 MEKTEC – Relayout AMR | MINIRW Co.,Ltd.
+%% AGV-001 Industrial Digital Twin & Autonomous Telemetry Gateway
+%% High-Precision Architecture Flowchart & Operational Lifecycle
+%% ==============================================================================
 
-    box Presentation Layer (Frontend React UI)
-        actor User as Operator / Admin
-        participant UI as WebApp UI
-        participant Card as Status Cards (Telemetry)
-        participant Map as 2D Map View (Phase 2)
+flowchart TD
+    %% Global Styling Classes
+    classDef uiLayer fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef bunLayer fill:#1e1b4b,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
+    classDef rosLayer fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc;
+    classDef safetyLayer fill:#450a0a,stroke:#f43f5e,stroke-width:2px,color:#fecdd3;
+    classDef storageLayer fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fef3c7;
+    classDef actionNode fill:#1e293b,stroke:#64748b,stroke-width:1.5px,color:#e2e8f0;
+
+    %% ==========================================================================
+    %% 1. PRESENTATION LAYER (React 19 Frontend - Port 3000)
+    %% ==========================================================================
+    subgraph PRESENTATION["🌐 Presentation Layer (React 19 Industrial UI - Port 3000)"]
+        direction TB
+
+        subgraph NAV_SECTION["Left Navigation Rail (NavRail.tsx)"]
+            NAV_MODES["Navigation View Switcher<br/>• Overview (2D Canvas)<br/>• Close-up (3D Three.js)<br/>• Route Manager (Split-View)"]:::actionNode
+            NAV_THEME["Theme Switcher<br/>(Dark / Light SYNAOS)"]:::actionNode
+            NAV_STUDIO["Offline Studio Controller<br/>(Simulation Launch / Stop)"]:::actionNode
+        end
+
+        subgraph CANVAS_SECTION["Interactive Digital Twin Canvas (StationCanvas.tsx)"]
+            CANVAS_CORE["HTML5 2D Canvas Engine<br/>• Pan, Zoom, World Transforms<br/>• Mektec Floorplan (mektec_20260917_remap.png)"]:::actionNode
+            CANVAS_ROBOT["AGV-001 Robot Visualization<br/>• Real-time Pose (x, y, theta)<br/>• Heading Direction Cone<br/>• Planned Path Trajectory (/planned_path)"]:::actionNode
+            CANVAS_LAYERS["Industrial Map Layers<br/>• Stations (Pins + Direction Ticks)<br/>• Waypoints (Royal Blue #2563eb + Halo)<br/>• Track Layer (Blue Dashed - Toggle HUD)<br/>• Map Origin (0,0) Reference Marker"]:::actionNode
+            CANVAS_LOCATOR["Target Locator Crosshair<br/>• Golden Ring Pulsing Highlight ⊕<br/>• Dynamic Target Label: 🎯 [NodeName]<br/>• Bi-directional Click Sync with Table"]:::actionNode
+        end
+
+        subgraph INSPECTOR_SECTION["Command & Mission Inspector (InspectorPanel.tsx)"]
+            INSPECT_DETAILS["Details Tab<br/>• Velocity, Battery, Pin Lock State<br/>• E-Stop & Obstacle Status<br/>• 3-Second Heartbeat Watchdog Status"]:::actionNode
+            INSPECT_MODES["Order / Mission Tab (3-Way Segmented Control)"]:::actionNode
+
+            subgraph MISSION_SUBMODES["Mission Execution Sub-Modes"]
+                MODE_SINGLE["Single Mode<br/>• Select 1 Target Station<br/>• Actions: [Go Station], [Reset Pose]"]:::actionNode
+                MODE_QUEUE["Queue Mode (Q1 - Q5)<br/>• Add/Remove up to 5 Stations<br/>• Actions: [Start Queue], [Next], [Cancel Queue]"]:::actionNode
+                MODE_LIST["Pick & Place Mode<br/>• Send Station (Pin Down)<br/>• Receive Station (Pin Up)<br/>• Action: [Start Pick & Place]"]:::actionNode
+            end
+
+            INSPECT_INTERLOCK["Hardware Interlock Safety Banner<br/>• Locked on: E-Stop / Obstacle / Moving<br/>• Emergency Action: [ปลดล็อค / หยุดวิ่ง]"]:::safetyLayer
+        end
+
+        subgraph ROUTE_MGR_SECTION["Map & Route Manager (MapRouteManagerPane.tsx)"]
+            MGR_TABS["Data Tabs: [สถานี] | [Waypoints] | [รางเดินรถ]"]:::actionNode
+            MGR_ACTIONS["CRUD Operations<br/>• Inline Coordinate Editing (x, y, yaw)<br/>• Quick Add Form & Search Filter<br/>• Locate on Map Button"]:::actionNode
+            MGR_DANGLING["Dangling Edge Safety Modal (DanglingEdgeModal.tsx)<br/>• Prevents Broken Topology on Node Deletion<br/>• Prompt Confirmation for Connected Edges"]:::safetyLayer
+        end
     end
 
-    box Gateway Layer (Bun + ElysiaJS)
-        participant GW as Bun Gateway (Connection Manager)
+    %% ==========================================================================
+    %% 2. GATEWAY BACKEND LAYER (Pure Native Bun - Port 3000)
+    %% ==========================================================================
+    subgraph GATEWAY["⚡ Gateway Backend Layer (Pure Native Bun Server - Port 3000)"]
+        direction TB
+
+        BUN_SERVE["Pure Bun.serve() Gateway Router (src/index.ts)<br/>• Zero Frameworks - High Throughput<br/>• Hot Module Reloading (HMR)<br/>• Static Asset & Map PNG Caching"]:::bunLayer
+
+        subgraph API_ROUTES["RESTful API Endpoints"]
+            API_TELEM["GET /api/robot/telemetry<br/>(Reads RAM Cache in < 1ms)"]:::actionNode
+            API_GO["POST /api/robot/go-station<br/>(Single Navigation Goal)"]:::actionNode
+            API_QUEUE["POST /api/robot/go-station-queue<br/>(Payload: target_station_q1..q5)"]:::actionNode
+            API_LIST["POST /api/robot/go-station-list<br/>(Payload: send_station, receive_station)"]:::actionNode
+            API_CMD["POST /api/robot/cmd-req<br/>(Commands: 'Next', 'Cancle Queue')"]:::actionNode
+            API_CANCEL["POST /api/robot/cancel-navigation<br/>(Publishes /move_base/cancel + zero Twist)"]:::safetyLayer
+            API_RESET["POST /api/robot/reset-position<br/>(Initial Pose to AMCL)"]:::actionNode
+            API_MAP_LAYOUT["GET /api/map-layout<br/>(Unified Stations, Waypoints, Tracks)"]:::actionNode
+            API_CRUD["POST /api/stations | /api/waypoints | /api/tracks<br/>DELETE /api/node/:name?force=true"]:::actionNode
+            API_DYNAMIC_MAP["GET /api/map/dynamic<br/>(Calls /get_map_image or fallback to PNG)"]:::actionNode
+        end
+
+        subgraph SERVICES_CORE["Gateway Core Services"]
+            ROS_BRIDGE_SERVICE["ROS Bridge Service (src/services/rosBridge.ts)<br/>• Singleton WebSocket Client to ROS:9090<br/>• Auto-reconnect Loop (every 3s)<br/>• Service Call Timeout Manager (5000ms)<br/>• In-RAM Telemetry State Holder"]:::bunLayer
+            MAP_MANAGER_SERVICE["Map Manager Service (src/services/mapManager.ts)<br/>• Native Bun.file() & Bun.write() UTF-8<br/>• Atomic Backup (.bak) Generator<br/>• Thai Comment Stripper (# ช่วง...)<br/>• Dangling Edge Conflict Detector (HTTP 409)<br/>• Trigger ROS Marker Reload (/amv/reload_markers)"]:::bunLayer
+        end
+
+        subgraph FILE_STORAGE["Disk Storage (Cross-Platform Station Config)"]
+            CSV_STATIONS[("station_list.csv<br/>(12 Stations + Quaternions)")]:::storageLayer
+            CSV_WAYPOINTS[("waypoint_follower_list.csv<br/>(wp1 - wp18 Aligned Coordinates)")]:::storageLayer
+            CSV_TRACKS[("manual_track.csv<br/>(39 Bidirectional Route Edges)")]:::storageLayer
+            MAP_PNG[("mektec_20260917_remap.png<br/>(115.2m x 70.4m Factory Floorplan)")]:::storageLayer
+        end
     end
 
-    box System & Sync Layer
-        participant Chrony as Chrony Service (Time Sync)
+    %% ==========================================================================
+    %% 3. ROBOT SYSTEM LAYER (ROS Noetic on Ubuntu - Port 9090)
+    %% ==========================================================================
+    subgraph ROBOT_LAYER["Robot System Layer (ROS Noetic on AMV2 - minirw@10.160.79.82)"]
+        direction TB
+
+        ROSBRIDGE["rosbridge_server (Port 9090)<br/>WebSocket JSON-RPC Interface"]:::rosLayer
+
+        subgraph STATION_SERVICE["AMV Station Service (station_service.py)"]
+            SRV_HANDLERS["Service Callbacks<br/>• go_station_service<br/>• go_station_queue_service (stores q2..q5)<br/>• go_station_list_service (Pick & Place)<br/>• cmd_req_service ('Next' / 'Cancle Queue')<br/>• reset_position_service<br/>• read_station_service"]:::rosLayer
+            STATE_MACHINE["Navigation & Pin State Machine<br/>• Track current station (tolerance dx, dy < 0.3m)<br/>• Movebase status tracker (1:Active, 3:Arrived, 4:Error)<br/>• Auto forward 0.65m on Pin Down (moving_forward)<br/>• Auto-transition to Receive Station"]:::rosLayer
+        end
+
+        subgraph NAVIGATION_STACK["Autonomous Navigation Stack"]
+            MOVE_BASE["move_base Action Server<br/>• Global Planner (NavfnROS)<br/>• Local Planner (TEB / DWA)<br/>• Topic: /move_base/cancel (GoalID abort)"]:::rosLayer
+            LOCALIZATION["Robot Localization & TF<br/>• AMCL / Scan Matcher (map ➔ odom ➔ base_link)<br/>• Topic: /amv_pose_tf (geometry_msgs/Pose)<br/>• Topic: /amv_current_pose (geometry_msgs/Pose2D)"]:::rosLayer
+            SAFETY_MODULES["Safety & Base Controllers<br/>• Laser Zone 1 Obstacle Detector (/zone1)<br/>• Base Status Controller (/amv_base_status)<br/>• Motor Velocity Interface (/nav_vel, /cmd_vel)<br/>• Physical E-Stop & Reset Buttons"]:::safetyLayer
+        end
     end
 
-    box Robot ROS Layer (rosbridge :9090)
-        participant WS as rosbridge_server
-        participant Station as station_service.py
-        participant Nav as move_base / Localization
-    end
+    %% ==========================================================================
+    %% RELATIONSHIPS & DATAFLOW PIPELINES
+    %% ==========================================================================
 
-    %% ==========================================================
-    %% Phase 1: Connection Handshake, Time Sync & Live Telemetry
-    %% ==========================================================
-    rect rgb(240, 248, 255)
-    note over User, Nav: Phase 1: Connection & Live Telemetry (เน้นทำอันนี้ให้ผ่านก่อน)
-    User->>UI: 1. เปิดหน้าจอเว็บ WebApp UI
-    UI->>GW: 2. ต่อ WebSocket (ws://localhost:9000/ws)
-    GW->>WS: 3. ต่อ WebSocket ไปยังหุ่นยนต์ (ws://<robot-ip>:9090)
-    WS-->>GW: 4. rosbridge ตอบรับ Handshake สำเร็จ
+    %% Presentation to Gateway (HTTP Polling & Commands)
+    PRESENTATION -.->|4Hz Polling /api/robot/telemetry| API_TELEM
+    MODE_SINGLE -->|POST /api/robot/go-station| API_GO
+    MODE_QUEUE -->|POST /api/robot/go-station-queue| API_QUEUE
+    MODE_LIST -->|POST /api/robot/go-station-list| API_LIST
+    MODE_QUEUE -->|POST /api/robot/cmd-req| API_CMD
+    INSPECT_INTERLOCK -->|POST /api/robot/cancel-navigation| API_CANCEL
+    ROUTE_MGR_SECTION -->|GET/POST/DELETE /api/stations, waypoints, tracks| API_CRUD
 
-    GW->>Chrony: 5. ตรวจสอบ Clock Offset ระหว่างคอมกับหุ่น
-    Chrony-->>GW: 6. Time Sync Status (Offset OK < 5ms)
-    GW-->>Card: 7. อัปเดตสถานะ "Robot: ONLINE" + "Clock: Synced"
+    %% Gateway to Internal Services & Storage
+    API_TELEM --> ROS_BRIDGE_SERVICE
+    API_GO & API_QUEUE & API_LIST & API_CMD & API_CANCEL & API_RESET --> ROS_BRIDGE_SERVICE
+    API_MAP_LAYOUT & API_CRUD --> MAP_MANAGER_SERVICE
+    MAP_MANAGER_SERVICE -->|Read / Safe Write with .bak| FILE_STORAGE
+    MAP_MANAGER_SERVICE -.->|Trigger /amv/reload_markers| ROS_BRIDGE_SERVICE
 
-    GW->>WS: 8. Subscribe: /amv_navigation_status & /amv_base_status
-    loop ทุก 100ms (10Hz Telemetry Stream)
-        Station-->>WS: ส่งข้อมูลสถานะหุ่นล่าสุด
-        WS-->>GW: JSON: current_station, nav_status, pin_lock, obstacle, buttons
-        GW-->>Card: อัปเดตตัวเลขสดบนหน้าจอ (สถานีปัจจุบัน, สลัก Pin, เซ็นเซอร์สิ่งกีดขวาง)
-    end
-    end
+    %% Gateway to ROS Bridge (WebSocket ws://localhost:9090 or ws://10.160.79.82:9090)
+    ROS_BRIDGE_SERVICE <===>|Single Persistent WebSocket<br/>JSON-RPC Port 9090| ROSBRIDGE
 
-    %% ==========================================================
-    %% Phase 2: Station List & Navigation Commands
-    %% ==========================================================
-    rect rgb(245, 255, 245)
-    note over User, Nav: Phase 2: Stations & Control (สั่งการทำงาน)
-    UI->>GW: 9. ขอรายชื่อสถานี (GET /api/stations)
-    GW->>WS: 10. Call ROS Service: /read_station
-    WS->>Station: เรียก read_station_service()
-    Station-->>WS: ส่งรายชื่อสถานีจาก CSV (Line1, Line12, Material Room...)
-    WS-->>GW: Station List JSON
-    GW-->>UI: แสดงรายชื่อสถานีลงใน Dropdown ให้ผู้ใช้เลือก
-
-    User->>UI: 11. เลือกสถานี "Line12" แล้วกดปุ่ม "Go Station"
-    UI->>GW: 12. สั่งเดินรถ (POST /api/go-station { target: "Line12" })
-    GW->>WS: 13. Call ROS Service: /go_station { target_station: "Line12" }
-    WS->>Station: เรียก go_station_service()
-    Station->>Nav: ส่ง Goal ไปที่ move_base Action Server
-    Nav-->>Station: เริ่มเคลื่อนที่ (movebase_status = 1: Got path planning)
-    Station-->>Card: สตรีมสถานะ "Going to Line12" และไฟ LED สีเขียวกระพริบ
-    end
-
-    %% ==========================================================
-    %% Phase 3: 2D Map Visualization
-    %% ==========================================================
-    rect rgb(255, 250, 240)
-    note over User, Nav: Phase 3: 2D Map & Robot Position (แผนที่ภาพ)
-    UI->>GW: 14. โหลดแผนที่ (GET /api/map) -> ดึงรูป PNG/PGM แผนที่โกดัง
-    GW-->>Map: แสดงภาพแผนที่บนหน้าจอ Canvas
-    loop ตำแหน่งหุ่นบนแผนที่
-        Nav-->>WS: Pub /amv_pose_tf (x, y, yaw)
-        WS-->>GW: Forward พิกัด
-        GW-->>Map: ขยับไอคอนตัวหุ่นยนต์บนแผนที่ตามพิกัดจริง
-    end
-    end
+    %% ROS Internal Flow
+    ROSBRIDGE <-->|Call Services & Subscribe Topics| STATION_SERVICE
+    STATION_SERVICE -->|actionlib SimpleActionClient| MOVE_BASE
+    LOCALIZATION -->|Publishes /amv_pose_tf| ROSBRIDGE
+    SAFETY_MODULES -->|Publishes /zone1, /amv_base_status| ROSBRIDGE
+    MOVE_BASE -->|Publishes /planned_path, move_base/status| ROSBRIDGE
+    ROS_BRIDGE_SERVICE -->|Publishes /move_base/cancel & /nav_vel Twist 0| MOVE_BASE
+    MOVE_BASE -->|Motor Velocity Drive| SAFETY_MODULES

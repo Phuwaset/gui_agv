@@ -443,16 +443,26 @@ export function StationCanvas({
         ctx.restore();
       }
 
-      // 5.5c Layer จุดนำร่อง Waypoint (/waypoint_markers หรือ waypoints จาก CSV)
-      // เปลี่ยนเป็นจุดสีน้ำเงิน Industrial Blue คมชัดตามคำสั่งผู้ใช้
-      const activeWaypoints: Array<{ name: string; x: number; y: number }> =
-        waypointMarkers.length > 0
-          ? waypointMarkers.map((mk) => ({
-              name: mk.text || "",
-              x: mk.pose?.position.x ?? 0,
-              y: mk.pose?.position.y ?? 0,
-            }))
-          : waypoints.map((w) => ({ name: w.name, x: w.x, y: w.y }));
+      // 5.5c Layer จุดนำร่อง Waypoint: รวม waypoints จาก layout (React state) ให้เป็น Real-time เสมอ
+      // และรวม waypointMarkers จาก ROS ถ้ามีเพิ่มเติม
+      const wpMap = new Map<string, { name: string; x: number; y: number }>();
+      waypointMarkers.forEach((mk) => {
+        if (mk.text) {
+          wpMap.set(mk.text.toLowerCase(), {
+            name: mk.text,
+            x: mk.pose?.position.x ?? 0,
+            y: mk.pose?.position.y ?? 0,
+          });
+        }
+      });
+      waypoints.forEach((w) => {
+        wpMap.set(w.name.toLowerCase(), {
+          name: w.name,
+          x: w.x,
+          y: w.y,
+        });
+      });
+      const activeWaypoints = Array.from(wpMap.values());
 
       activeWaypoints.forEach((wp) => {
         const pt = rosToCanvas(wp.x, wp.y, width, height);
@@ -726,10 +736,11 @@ export function StationCanvas({
         }
       }
 
-      // 2. ตรวจสอบ Waypoint
+      // 2. ตรวจสอบ Waypoint (ซิงค์เข้า selectedStation ด้วยเพื่อให้ทดสอบ Go Station ได้)
       for (const wp of waypoints) {
         const pt = rosToCanvas(wp.x, wp.y, canvasSize.width, canvasSize.height);
         if (Math.hypot(clickX - pt.x, clickY - pt.y) < 18) {
+          onSelectStation(wp);
           onSelectNode?.(wp.name);
           return;
         }

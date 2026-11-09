@@ -509,7 +509,12 @@ class StationService():
         self.home_station = 'Material Room'
 
         self.csv_path = rospy.get_param('~station_path', default='/home/minirw/amv_ws/src/amv_service/station/station_list.csv')
-        self.read_station_csv(self.csv_path)   
+        self.waypoint_csv_path = rospy.get_param('~waypoint_path', default='/home/minirw/amv_ws/src/amv_service/station/waypoint_follower_list.csv')
+        self.read_station_csv(self.csv_path)
+        try:
+            self.read_station_csv(self.waypoint_csv_path)
+        except Exception as e:
+            print('Could not read waypoint follower csv:', e)   
 
         self.read_station_srv = rospy.Service('read_station', ReadStation, self.read_station_service)
         #self.write_station_srv = rospy.Service('write_station', WriteStation, self.write_station_service)
